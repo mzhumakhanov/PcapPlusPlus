@@ -4,6 +4,12 @@ endif
 
 include ../mk/platform.mk
 
+ifeq ($(wildcard ../mk/PcapPlusPlus.mk),)
+  $(error PcapPlusPlus.mk not found! Please run configure script first)
+endif
+
+include ../mk/PcapPlusPlus.mk
+
 SOURCES := $(wildcard src/*.cpp)
 OBJS_FILENAMES := $(patsubst src/%.cpp,Obj/%.o,$(SOURCES))
 
@@ -21,7 +27,8 @@ endif
 
 INCLUDES := -I"./src" \
 			-I"./header" \
-			-I"$(COMMONPP_HOME)/header"
+			-I"$(COMMONPP_HOME)/header" \
+			-I"$(PCAPPLUSPLUS_HOME)/3rdParty/EndianPortable/include"
 			
 ifdef WIN32
 INCLUDES += -I$(MINGW_HOME)/include/ddk \
@@ -33,28 +40,27 @@ endif
 			
 Obj/%.o: src/%.cpp
 	@echo 'Building file: $<'
-	@echo 'Invoking: GCC C++ Compiler'
-	$(G++) $(DEPS) $(INCLUDES) -O2 -g -Wall -c -fmessage-length=0 -MMD -MP -MF"$(@:Obj/%.o=Obj/%.d)" -MT"$(@:Obj/%.o=Obj/%.d)" -o "$@" "$<"
-	@echo 'Finished building: $<'
-	@echo ' '
+	@$(CXX) $(DEPS) $(INCLUDES) $(PCAPPP_BUILD_FLAGS) -O2 -g -Wall -c -fmessage-length=0 -MMD -MP -MF"$(@:Obj/%.o=Obj/%.d)" -MT"$(@:Obj/%.o=Obj/%.d)" -o "$@" "$<"
 
-# All Target
+CUR_TARGET := $(notdir $(shell pwd))
+
+.SILENT:
+
 all: Packet++
 
-create-directories:
-	$(MKDIR) -p Obj
-	$(MKDIR) -p Lib
+start:
+	@echo '==> Building target: $(CUR_TARGET)'
 
-# Tool invocations
-Packet++: create-directories $(OBJS_FILENAMES)
-	@echo 'Building target: $@'
-	@echo 'Invoking: GCC Archiver'
-	$(AR) -r  "Lib/$(LIB_PREFIX)Packet++$(LIB_EXT)" $(OBJS_FILENAMES)
-	@echo 'Finished successfully building target: $@'
+create-directories:
+	@$(MKDIR) -p Obj
+	@$(MKDIR) -p Lib
+
+Packet++: start create-directories $(OBJS_FILENAMES)
+	@$(AR) -r  "Lib/$(LIB_PREFIX)Packet++$(LIB_EXT)" $(OBJS_FILENAMES)
+	@echo 'Finished successfully building: $(CUR_TARGET)'
 	@echo ' '
 
-# Other Targets
 clean:
-	$(RM) -rf ./Obj/*
-	$(RM) -rf ./Lib/*
-	@echo 'Clean finished'
+	@$(RM) -rf ./Obj/*
+	@$(RM) -rf ./Lib/*
+	@echo 'Clean finished: $(CUR_TARGET)'

@@ -33,6 +33,11 @@ namespace pcpp
 		// protected c'tor
 		IPAddress() : m_IsValid(false) {}
 	public:
+#if __cplusplus > 199711L
+		typedef std::unique_ptr<IPAddress> Ptr_t; 
+#else
+		typedef std::auto_ptr<IPAddress> Ptr_t; 
+#endif
 
 		/**
 		 * An enum representing the address type: IPv4 or IPv6
@@ -67,7 +72,21 @@ namespace pcpp
 		 * An IPv4 address that was constructed form the string "999.999.999.999"
 		 * @return True if the address is valid, false otherwise
 		 */
-		bool isValid() { return m_IsValid; }
+		bool isValid() const { return m_IsValid; }
+
+		/**
+		 * Clone the object
+		 * @return A newly allocated instance which is a clone of the current instance
+		 */
+		virtual IPAddress* clone() const = 0;
+
+		/**
+		 * Compare between this IP address and another IP address. This method is different than operator==() implemented in IPv4Address
+		 * and IPv6Address in the sense that you can compare any IP type: IPv6 to IPv6, IPv4 to IPv4 or IPv4 to IPv6.
+		 * It fits cases when you're not sure which type you currently have
+		 * @return True if addresses match or false otherwise
+		 */
+		bool equals(const IPAddress* other);
 
 		/**
 		 * Constructs an IP address of type IPv4 or IPv6 from a string (char*) representation
@@ -75,7 +94,7 @@ namespace pcpp
 		 * @return an auto-pointer to IPv4Address or IPv6Address instance that the string address represents, or an auto-pointer to NULL if
 		 * the string doesn't represent either of types
 		 */
-		static std::auto_ptr<IPAddress> fromString(char* addressAsString);
+		static Ptr_t fromString(char* addressAsString);
 
 		/**
 		 * Constructs an IP address of type IPv4 or IPv6 from a std::string representation
@@ -83,7 +102,7 @@ namespace pcpp
 		 * @return an auto-pointer to IPv4Address or IPv6Address instance that the string address represents, or an auto-pointer to NULL if
 		 * the string doesn't represent either of types
 		 */
-		static std::auto_ptr<IPAddress> fromString(std::string addressAsString);
+		static Ptr_t fromString(std::string addressAsString);
 	};
 
 	/**
@@ -135,6 +154,8 @@ namespace pcpp
 		 * @return IPv4AddressType
 		 */
 		AddressType getType() const { return IPv4AddressType; }
+
+		IPAddress* clone() const;
 
 		/**
 		 * Converts the IPv4 address into a 4B integer
@@ -227,6 +248,8 @@ namespace pcpp
 		 */
 		AddressType getType() const { return IPv6AddressType; }
 
+		IPAddress* clone() const;
+
 		/**
 		 * Returns a in6_addr struct pointer representing the IPv6 address
 		 * @return a in6_addr struct pointer representing the IPv6 address
@@ -251,7 +274,7 @@ namespace pcpp
 		 * Overload of the comparison operator
 		 * @return true if 2 addresses are equal. False otherwise
 		 */
-		bool operator==(const IPv6Address& other);
+		bool operator==(const IPv6Address& other) const;
 
 		/**
 		 * Overload of the non-equal operator

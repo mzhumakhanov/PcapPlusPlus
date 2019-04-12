@@ -12,7 +12,7 @@
 #ifndef _MSC_VER
 #include "unistd.h"
 #endif
-#if !defined(WIN32) && !defined(WINx64)
+#if !defined(WIN32) && !defined(WINx64) && !defined(PCAPPP_MINGW_ENV) 
 #include <in.h>
 #endif
 #include "EthLayer.h"
@@ -23,6 +23,7 @@
 #include "NetworkUtils.h"
 #include "Common.h"
 #include "PlatformSpecificUtils.h"
+#include "SystemUtils.h"
 
 
 using namespace pcpp;
@@ -553,6 +554,8 @@ void sendFile(std::string filePath, IPv4Address pitcherIP, IPv4Address catcherIP
  */
 int main(int argc, char* argv[])
 {
+	AppName::init(argc, argv);
+
 	bool sender, receiver;
 	IPv4Address pitcherIP = IPv4Address::Zero;
 	IPv4Address catcherIP = IPv4Address::Zero;

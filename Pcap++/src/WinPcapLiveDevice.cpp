@@ -1,9 +1,9 @@
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 
 #define LOG_MODULE PcapLogModuleWinPcapLiveDevice
 
-#include <WinPcapLiveDevice.h>
-#include <Logger.h>
+#include "WinPcapLiveDevice.h"
+#include "Logger.h"
 
 namespace pcpp
 {
@@ -63,7 +63,7 @@ int WinPcapLiveDevice::sendPackets(RawPacket* rawPacketsArr, int arrLength)
 	LOG_DEBUG("%d packets were queued successfully", packetsSent);
 
 	int res;
-	if ((res = pcap_sendqueue_transmit(m_PcapDescriptor, sendQueue, 0)) < sendQueue->len)
+	if ((res = pcap_sendqueue_transmit(m_PcapDescriptor, sendQueue, 0)) < (int)(sendQueue->len))
     {
         LOG_ERROR("An error occurred sending the packets: %s. Only %d bytes were sent\n", pcap_geterr(m_PcapDescriptor), res);
         packetsSent = 0;
@@ -108,4 +108,4 @@ bool WinPcapLiveDevice::setMinAmountOfDataToCopyFromKernelToApplication(int size
 
 } // namespace pcpp
 
-#endif // WIN32 || WINx64
+#endif // WIN32 || WINx64 || PCAPPP_MINGW_ENV

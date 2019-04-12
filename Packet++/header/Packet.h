@@ -31,7 +31,6 @@ namespace pcpp
 		Layer* m_LastLayer;
 		uint64_t m_ProtocolTypes;
 		size_t m_MaxPacketLen;
-		std::vector<Layer*> m_LayersAllocatedInPacket;
 		bool m_FreeRawPacket;
 
 	public:
@@ -46,20 +45,40 @@ namespace pcpp
 		/**
 		 * A constructor for creating a packet out of already allocated RawPacket. Very useful when parsing packets that came from the network.
 		 * When using this constructor a pointer to the RawPacket is saved (data isn't copied) and the RawPacket is parsed, meaning all layers
-		 * are created and linked to each other in the right order
+		 * are created and linked to each other in the right order. In this overload of the constructor the user can specify whether to free
+		 * the instance of raw packet when the Packet is free or not
 		 * @param[in] rawPacket A pointer to the raw packet
+		 * @param[in] freeRawPacket Optional parameter. A flag indicating if the destructor should also call the raw packet destructor or not. Default value is false
+		 * @param[in] parseUntil Optional parameter. Parse the packet until you reach a certain protocol (inclusive). Can be useful for cases when you need to parse only up to a
+		 * certain layer and want to avoid the performance impact and memory consumption of parsing the whole packet. Default value is ::UnknownProtocol which means don't take this
+		 * parameter into account
+		 * @param[in] parseUntilLayer Optional parameter. Parse the packet until you reach a certain layer in the OSI model (inclusive). Can be useful for cases when you need to
+		 * parse only up to a certain OSI layer (for example transport layer) and want to avoid the performance impact and memory consumption of parsing the whole packet.
+		 * Default value is ::OsiModelLayerUnknown which means don't take this parameter into account
 		 */
-		Packet(RawPacket* rawPacket);
+		Packet(RawPacket* rawPacket, bool freeRawPacket = false, ProtocolType parseUntil = UnknownProtocol, OsiModelLayer parseUntilLayer = OsiModelLayerUnknown);
 
 		/**
 		 * A constructor for creating a packet out of already allocated RawPacket. Very useful when parsing packets that came from the network.
 		 * When using this constructor a pointer to the RawPacket is saved (data isn't copied) and the RawPacket is parsed, meaning all layers
 		 * are created and linked to each other in the right order. In this overload of the constructor the user can specify whether to free
-		 * the instance of raw packet when the Packet is free or not
+		 * the instance of raw packet when the Packet is free or not. This constructor should be used to parse the packet up to a certain layer
 		 * @param[in] rawPacket A pointer to the raw packet
-		 * @param[in] freeRawPacket A flag indicating if the destructor should also call the raw packet destructor or not
+		 * @param[in] parseUntil Optional parameter. Parse the packet until you reach a certain protocol (inclusive). Can be useful for cases when you need to parse only up to a
+		 * certain layer and want to avoid the performance impact and memory consumption of parsing the whole packet
 		 */
-		Packet(RawPacket* rawPacket, bool freeRawPacket);
+		Packet(RawPacket* rawPacket, ProtocolType parseUntil);
+
+		/**
+		 * A constructor for creating a packet out of already allocated RawPacket. Very useful when parsing packets that came from the network.
+		 * When using this constructor a pointer to the RawPacket is saved (data isn't copied) and the RawPacket is parsed, meaning all layers
+		 * are created and linked to each other in the right order. In this overload of the constructor the user can specify whether to free
+		 * the instance of raw packet when the Packet is free or not. . This constructor should be used to parse the packet up to a certain layer in the OSI model
+		 * @param[in] rawPacket A pointer to the raw packet
+		 * @param[in] parseUntilLayer Optional parameter. Parse the packet until you reach a certain layer in the OSI model (inclusive). Can be useful for cases when you need to
+		 * parse only up to a certain OSI layer (for example transport layer) and want to avoid the performance impact and memory consumption of parsing the whole packet
+		 */
+		Packet(RawPacket* rawPacket, OsiModelLayer parseUntilLayer);
 
 		/**
 		 * A destructor for this class. Frees all layers allocated by this instance (Notice: it doesn't free layers that weren't allocated by this
@@ -94,8 +113,12 @@ namespace pcpp
 		 * Set a RawPacket and re-construct all packet layers
 		 * @param[in] rawPacket Raw packet to set
 		 * @param[in] freeRawPacket A flag indicating if the destructor should also call the raw packet destructor or not
+		 * @param[in] parseUntil Parse the packet until it reaches this protocol. Can be useful for cases when you need to parse only up to a certain layer and want to avoid the
+		 * performance impact and memory consumption of parsing the whole packet. Default value is ::UnknownProtocol which means don't take this parameter into account
+		 * @param[in] parseUntilLayer Parse the packet until certain layer in OSI model. Can be useful for cases when you need to parse only up to a certain layer and want to avoid the
+		 * performance impact and memory consumption of parsing the whole packet. Default value is ::OsiModelLayerUnknown which means don't take this parameter into account
 		 */
-		void setRawPacket(RawPacket* rawPacket, bool freeRawPacket);
+		void setRawPacket(RawPacket* rawPacket, bool freeRawPacket, ProtocolType parseUntil = UnknownProtocol, OsiModelLayer parseUntilLayer = OsiModelLayerUnknown);
 
 		/**
 		 * Get a pointer to the Packet's RawPacket in a read-only manner
@@ -120,10 +143,11 @@ namespace pcpp
 		 * and attaches it to the packet. Notice after calling this method the input layer is attached to the packet so
 		 * every change you make in it affect the packet; Also it cannot be attached to other packets
 		 * @param[in] newLayer A pointer to the new layer to be added to the packet
+		 * @param[in] ownInPacket If true, Packet fully owns newLayer, including memory deletion upon destruct.  Default is false.
 		 * @return True if everything went well or false otherwise (an appropriate error log message will be printed in
 		 * such cases)
 		 */
-		bool addLayer(Layer* newLayer);
+		bool addLayer(Layer* newLayer, bool ownInPacket = false);
 
 		/**
 		 * Insert a new layer after an existing layer in the packet. This method gets a pointer to the new layer as a
@@ -132,18 +156,91 @@ namespace pcpp
 		 * @param[in] prevLayer A pointer to an existing layer in the packet which the new layer should followed by. If
 		 * this layer isn't attached to a packet and error will be printed to log and false will be returned
 		 * @param[in] newLayer A pointer to the new layer to be added to the packet
+		 * @param[in] ownInPacket If true, Packet fully owns newLayer, including memory deletion upon destruct.  Default is false.
 		 * @return True if everything went well or false otherwise (an appropriate error log message will be printed in
 		 * such cases)
 		 */
-		bool insertLayer(Layer* prevLayer, Layer* newLayer);
+		bool insertLayer(Layer* prevLayer, Layer* newLayer, bool ownInPacket = false);
+
 
 		/**
-		 * Remove an existing layer from the packet
-		 * @param[in] layer The layer to remove
+		 * Remove an existing layer from the packet. The layer to removed is identified by its type (protocol). If the
+		 * packet has multiple layers of the same type in the packet the user may specify the index of the layer to remove 
+		 * (the default index is 0 - remove the first layer of this type). If the layer was allocated during packet creation 
+		 * it will be deleted and any pointer to it will get invalid. However if the layer was allocated by the user and
+		 * manually added to the packet it will simply get detached from the packet, meaning the pointer to it will stay 
+		 * valid and its data (that was removed from the packet) will be copied back to the layer. In that case it's 
+		 * the user's responsibility to delete the layer instance
+		 * @param[in] layerType The layer type (protocol) to remove
+		 * @param[in] index If there are multiple layers of the same type, indicate which instance to remove. The default
+		 * value is 0, meaning remove the first layer of this type
 		 * @return True if everything went well or false otherwise (an appropriate error log message will be printed in
 		 * such cases)
 		 */
-		bool removeLayer(Layer* layer);
+		bool removeLayer(ProtocolType layerType, int index = 0);
+
+		/**
+		 * Remove the first layer in the packet. The layer will be deleted if it was allocated during packet creation, or detached
+		 * if was allocated outside of the packet. Please refer to removeLayer() to get more info
+		 * @return True if layer removed successfully, or false if removing the layer failed or if there are no layers in the 
+		 * packet. In any case of failure an appropriate error log message will be printed 
+		 */
+		bool removeFirstLayer();
+
+		/**
+		 * Remove the last layer in the packet. The layer will be deleted if it was allocated during packet creation, or detached
+		 * if was allocated outside of the packet. Please refer to removeLayer() to get more info
+		 * @return True if layer removed successfully, or false if removing the layer failed or if there are no layers in the 
+		 * packet. In any case of failure an appropriate error log message will be printed 
+		 */
+		bool removeLastLayer();
+
+		/**
+		 * Remove all layers that come after a certain layer. All layers removed will be deleted if they were allocated during
+		 * packet creation or detached if were allocated outside of the packet, please refer to removeLayer() to get more info
+		 * @param[in] layer A pointer to the layer to begin removing from. Please note this layer will not be removed, only the 
+		 * layers that come after it will be removed. Also, if removal of one layer failed, the method will return immediately and
+		 * the following layers won't be deleted
+		 * @return True if all layers were removed successfully, or false if failed to remove at least one layer. In any case of
+		 * failure an appropriate error log message will be printed
+		 */
+		bool removeAllLayersAfter(Layer* layer);
+
+		/**
+		 * Detach a layer from the packet. Detaching means the layer instance will not be deleted, but rather seperated from the
+		 * packet - e.g it will be removed from the layer chain of the packet and its data will be copied from the packet buffer
+		 * into an internal layer buffer. After a layer is detached, it can be added into another packet (but it's impossible to 
+		 * attach a layer to multiple packets in the same time). After layer is detached, it's the user's responsibility to 
+		 * delete it when it's not needed anymore
+		 * @param[in] layerType The layer type (protocol) to detach from the packet
+		 * @param[in] index If there are multiple layers of the same type, indicate which instance to detach. The default
+		 * value is 0, meaning detach the first layer of this type
+		 * @return A pointer to the detached layer or NULL if detaching process failed. In any case of failure an 
+		 * appropriate error log message will be printed
+		 */
+		Layer* detachLayer(ProtocolType layerType, int index = 0);
+
+		/**
+		 * Detach a layer from the packet. Detaching means the layer instance will not be deleted, but rather seperated from the
+		 * packet - e.g it will be removed from the layer chain of the packet and its data will be copied from the packet buffer
+		 * into an internal layer buffer. After a layer is detached, it can be added into another packet (but it's impossible to 
+		 * attach a layer to multiple packets at the same time). After layer is detached, it's the user's responsibility to 
+		 * delete it when it's not needed anymore
+		 * @param[in] layer A pointer to the layer to detach
+		 * @return True if the layer was detached successfully, or false if something went wrong. In any case of failure an 
+		 * appropriate error log message will be printed
+		 */
+		bool detachLayer(Layer* layer);
+
+		/**
+		 * Get a pointer to the layer of a certain type (protocol). This method goes through the layers and returns a layer
+		 * that matches the give protocol type
+		 * @param[in] layerType The layer type (protocol) to fetch
+		 * @param[in] index If there are multiple layers of the same type, indicate which instance to fetch. The default
+		 * value is 0, meaning fetch the first layer of this type
+		 * @return A pointer to the layer or NULL if no such layer was found
+		 */
+		Layer* getLayerOfType(ProtocolType layerType, int index = 0);
 
 		/**
 		 * A templated method to get a layer of a certain type (protocol). If no layer of such type is found, NULL is returned
@@ -182,14 +279,14 @@ namespace pcpp
 		 * @param[in] timeAsLocalTime Print time as local time or GMT. Default (true value) is local time, for GMT set to false
 		 * @return A string containing most relevant data from all layers (looks like the packet description in Wireshark)
 		 */
-		std::string printToString(bool timeAsLocalTime = true);
+		std::string toString(bool timeAsLocalTime = true);
 
 		/**
-		 * Similar to printToString(), but instead of one string it outputs a list of strings, one string for every layer
+		 * Similar to toString(), but instead of one string it outputs a list of strings, one string for every layer
 		 * @param[out] result A string vector that will contain all strings
 		 * @param[in] timeAsLocalTime Print time as local time or GMT. Default (true value) is local time, for GMT set to false
 		 */
-		void printToStringList(std::vector<std::string>& result, bool timeAsLocalTime = true);
+		void toStringList(std::vector<std::string>& result, bool timeAsLocalTime = true);
 
 	private:
 		void copyDataFrom(const Packet& other);
@@ -201,7 +298,11 @@ namespace pcpp
 
 		void reallocateRawData(size_t newSize);
 
+		bool removeLayer(Layer* layer, bool tryToDelete);
+
 		std::string printPacketInfo(bool timeAsLocalTime);
+
+		Layer* createFirstLayer(LinkLayerType linkType);
 	};
 
 	template<class TLayer>

@@ -3,10 +3,10 @@
 
 #include <map>
 #include <vector>
-#include <PointerVector.h>
-#include <Layer.h>
-#include <SSLCommon.h>
-#include <SSLHandshake.h>
+#include "PointerVector.h"
+#include "Layer.h"
+#include "SSLCommon.h"
+#include "SSLHandshake.h"
 
 /**
  * @file
@@ -248,6 +248,8 @@ namespace pcpp
 		 * identified as SSL/TLS it creates another SSL/TLS record layer as the next layer
 		 */
 		void parseNextLayer();
+
+		OsiModelLayer getOsiModelLayer() { return OsiModelPresentationLayer; }
 
 	protected:
 		SSLLayer(uint8_t* data, size_t dataLen, Layer* prevLayer, Packet* packet) : Layer(data, dataLen, prevLayer, packet) { m_Protocol = SSL; }

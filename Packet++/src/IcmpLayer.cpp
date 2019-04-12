@@ -1,10 +1,10 @@
 #define LOG_MODULE PacketLogModuleIcmpLayer
 
-#include <IcmpLayer.h>
-#include <PayloadLayer.h>
-#include <Packet.h>
-#include <IpUtils.h>
-#include <Logger.h>
+#include "IcmpLayer.h"
+#include "PayloadLayer.h"
+#include "Packet.h"
+#include "IpUtils.h"
+#include "Logger.h"
 #include <sstream>
 #include <string.h>
 #if defined(WIN32) || defined(WINx64) //for using ntohl, ntohs, etc.
@@ -66,16 +66,10 @@ bool IcmpLayer::cleanIcmpLayer()
 
 	if (m_Packet != NULL)
 	{
-		Layer* layerToRemove = this->getNextLayer();
-		while (layerToRemove != NULL)
-		{
-			Layer* temp = layerToRemove->getNextLayer();
-			if (!m_Packet->removeLayer(layerToRemove))
-				return false;
-			layerToRemove = temp;
-		}
+		bool res = m_Packet->removeAllLayersAfter(this);
+		if (!res)
+			return false;
 	}
-
 
 	// shorten layer to size of icmphdr
 
@@ -588,7 +582,7 @@ void IcmpLayer::parseNextLayer()
 	case ICMP_PARAM_PROBLEM:
 		headerLen = getHeaderLen();
 		if (m_DataLen - headerLen >= sizeof(iphdr))
-			m_NextLayer = new IPv4Layer(m_Data + headerLen, m_DataLen - headerLen, this, m_Packet);
+			m_NextLayer = new IPv4Layer(m_Data + headerLen, m_DataLen - headerLen, this, m_Packet, false);
 		return;
 	default:
 		headerLen = getHeaderLen();

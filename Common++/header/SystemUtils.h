@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 #include <windows.h>
 #else
 #include <pthread.h>
@@ -244,6 +244,63 @@ namespace pcpp
 	bool directoryExists(std::string dirPath);
 
 	/**
+	 * Retrieve a system-wide real-time accurate clock. It's actually a multi-platform version of clock_gettime() which is
+	 * fully supported only on Linux
+	 * @param[out] sec The second portion of the time
+	 * @param[out] nsec The nanosecond portion of the time
+	 * @return 0 for success, or -1 for failure
+	 */
+	int clockGetTime(long& sec, long& nsec);
+
+	/**
+	 * @class AppName
+	 * This class extracts the application name from the current running executable and stores it for usage of the application throughout its runtime.
+	 * This class should be initialized once in the beginning of the main() method using AppName#init() and from then on the app name could be retrieved using AppName#get()
+	 */
+	class AppName
+	{
+	private:
+		static std::string m_AppName;
+
+	public:
+		/**
+		 * Static init method which should be called once at the beginning of the main method.
+		 * @param[in] argc The argc param from main()
+		 * @param[in] argv The argv param from main()
+		 */
+		static void init(int argc, char* argv[])
+		{
+			if (argc == 0)
+			{
+				m_AppName = "";
+				return;
+			}
+
+			m_AppName = argv[0];
+
+			// remove Linux/Unix path
+			while (m_AppName.find("/") != std::string::npos)
+			{
+				m_AppName = m_AppName.substr(m_AppName.find("/")+1);
+			}
+
+			// remove Windows path
+			while (m_AppName.find("\\") != std::string::npos)
+			{
+				m_AppName = m_AppName.substr(m_AppName.find("\\")+1);
+			}
+
+			// remove file extension
+			m_AppName = m_AppName.substr(0, m_AppName.find("."));
+		}
+
+		/**
+		 * @return The app name as extracted from the current running executable
+		 */
+		static std::string get() { return m_AppName; }
+	};
+
+	/**
 	 * @class ApplicationEventHandler
 	 * A singleton class that provides callbacks for events that occur during application life-cycle such as ctrl+c pressed,
 	 * application closed, killed, etc.
@@ -253,7 +310,8 @@ namespace pcpp
 	public:
 		/**
 		 * @typedef EventHandlerCallback
-		 * The callback to be activated when the event occurs
+		 * The callback to be invoked when the event occurs
+		 * @param[in] cookie A pointer the the cookie provided by the user in ApplicationEventHandler c'tor
 		 */
 		typedef void (*EventHandlerCallback)(void* cookie);
 

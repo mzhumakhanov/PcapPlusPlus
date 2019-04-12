@@ -3,7 +3,7 @@
 
 /// @file
 
-#include <Layer.h>
+#include "Layer.h"
 
 namespace pcpp
 {
@@ -83,6 +83,8 @@ namespace pcpp
 		void computeCalculateFields() {}
 
 		std::string toString();
+
+		OsiModelLayer getOsiModelLayer() { return OsiModelDataLinkLayer; }
 	};
 
 } // namespace pcpp

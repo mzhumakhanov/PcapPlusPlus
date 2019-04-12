@@ -1,8 +1,8 @@
 #ifndef PACKETPP_ICMP_LAYER
 #define PACKETPP_ICMP_LAYER
 
-#include <Layer.h>
-#include <IPv4Layer.h>
+#include "Layer.h"
+#include "IPv4Layer.h"
 #ifdef _MSC_VER
 #include <Winsock2.h>
 #else
@@ -410,7 +410,7 @@ namespace pcpp
 		 * Get a pointer to the basic ICMP header. Notice this points directly to the data, so every change will change the actual packet data
 		 * @return A pointer to the @ref icmphdr
 		 */
-		inline icmphdr* getIcmpHeader() { return (icmphdr*)m_Data; };
+		inline icmphdr* getIcmpHeader() { return (icmphdr*)m_Data; }
 
 		/**
 		 * @return The ICMP message type
@@ -694,6 +694,8 @@ namespace pcpp
 		void computeCalculateFields();
 
 		std::string toString();
+
+		OsiModelLayer getOsiModelLayer() { return OsiModelNetworkLayer; }
 	};
 
 } // namespace pcpp

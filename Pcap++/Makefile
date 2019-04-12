@@ -4,6 +4,12 @@ endif
 
 include ../mk/platform.mk
 
+ifeq ($(wildcard ../mk/PcapPlusPlus.mk),)
+  $(error PcapPlusPlus.mk not found! Please run configure script first)
+endif
+
+include ../mk/PcapPlusPlus.mk
+
 SOURCES := $(wildcard src/*.cpp)
 OBJS_FILENAMES := $(patsubst src/%.cpp,Obj/%.o,$(SOURCES))
 
@@ -35,7 +41,8 @@ INCLUDES := -I"./src" \
 			-I"./header" \
 			-I"$(COMMONPP_HOME)/header" \
 			-I"$(PACKETPP_HOME)/header" \
-			-I"$(LIGHT_PCAPNG_HOME)/include"
+			-I"$(LIGHT_PCAPNG_HOME)/include" \
+			-I"$(PCAPPLUSPLUS_HOME)/3rdParty/EndianPortable/include"
 			
 ifdef WIN32
 INCLUDES += -I$(MINGW_HOME)/include/ddk \
@@ -48,40 +55,45 @@ ifdef PF_RING_HOME
 INCLUDES += -I$(PF_RING_HOME)/userland/lib -I$(PF_RING_HOME)/kernel
 endif
 ifdef USE_DPDK
-INCLUDES += -I"$(RTE_SDK)/$(RTE_TARGET)/include"
+INCLUDES += -I"$(RTE_SDK)/build/include"
+endif
+ifdef LIBPCAP_INLCUDE_DIR
+INCLUDES += -I"$(LIBPCAP_INLCUDE_DIR)"
 endif
 
+ifdef HAS_PCAP_IMMEDIATE_MODE
+DEPS += -DHAS_PCAP_IMMEDIATE_MODE
+endif
 
 ifdef USE_DPDK
 FLAGS := -msse -msse2 -msse3 -mssse3
-endif		
+endif
 	
 Obj/%.o: src/%.cpp
 	@echo 'Building file: $<'
-	@echo 'Invoking: GCC C++ Compiler'
-	$(G++) $(DEPS) $(INCLUDES) $(FLAGS) -O2 -g -Wall -c -fmessage-length=0 -MMD -MP -MF"$(@:Obj/%.o=Obj/%.d)" -MT"$(@:Obj/%.o=Obj/%.d)" -o "$@" "$<"
-	@echo 'Finished building: $<'
-	@echo ' '
+	@$(CXX) $(DEPS) $(INCLUDES) $(PCAPPP_BUILD_FLAGS) $(FLAGS) -O2 -g -Wall -c -fmessage-length=0 -MMD -MP -MF"$(@:Obj/%.o=Obj/%.d)" -MT"$(@:Obj/%.o=Obj/%.d)" -o "$@" "$<"
 
-# All Target
+CUR_TARGET := $(notdir $(shell pwd))
+
+.SILENT:
+
 all: Pcap++.lib
 
-create-directories:
-	$(MKDIR) -p Obj
-	$(MKDIR) -p Lib
+start:
+	@echo '==> Building target: $(CUR_TARGET)'
 
-# Tool invocations
-Pcap++.lib: create-directories $(OBJS_FILENAMES)
-	cd $(LIGHT_PCAPNG_PCPP_HOME) && $(MAKE) light_pcapng_sources
-	@echo 'Building target: $@'
-	@echo 'Invoking: GCC Archiver'
-	$(AR) -r  "Lib/$(LIB_PREFIX)Pcap++$(LIB_EXT)" $(OBJS_FILENAMES) $(LIGHT_PCAPNG_OBJS_FILENAMES)
-	@echo 'Finished successfully building target: $@'
+create-directories:
+	@$(MKDIR) -p Obj
+	@$(MKDIR) -p Lib
+
+Pcap++.lib: start create-directories $(OBJS_FILENAMES)
+	@cd $(LIGHT_PCAPNG_PCPP_HOME) && $(MAKE) light_pcapng_sources
+	@$(AR) -r  "Lib/$(LIB_PREFIX)Pcap++$(LIB_EXT)" $(OBJS_FILENAMES) $(LIGHT_PCAPNG_OBJS_FILENAMES)
+	@echo 'Finished successfully building: $(CUR_TARGET)'
 	@echo ' '
 
-# Other Targets
 clean:
-	cd $(LIGHT_PCAPNG_PCPP_HOME) && $(MAKE) clean
-	$(RM) -rf ./Obj/*
-	$(RM) -rf ./Lib/*
-	@echo 'Clean finished'
+	@cd $(LIGHT_PCAPNG_PCPP_HOME) && $(MAKE) clean
+	@$(RM) -rf ./Obj/*
+	@$(RM) -rf ./Lib/*
+	@echo 'Clean finished: $(CUR_TARGET)'

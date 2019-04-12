@@ -12,7 +12,8 @@
 #include <PacketUtils.h>
 #include <map>
 #include <algorithm>
-
+#include <iomanip>
+#include <sstream>
 
 /**
  * The base splitter class. All type of splitters inherit from it. It's a virtual abstract class that doesn't
@@ -37,6 +38,19 @@ public:
 	virtual bool isSplitterParamLegal(std::string& errorString) = 0;
 
 	/**
+	 * A method that enables the splitter to decide what will be the output file names based on the file number
+	 * (determined also by the splitter), the output path and input file name (determined by the user) and the
+	 * first packet that will be written to this file. The default implementation is the following:
+	 * ' /requested-path/original-file-name-[4-digit-number-starting-at-0000].pcap'
+	 */
+	virtual std::string getFileName(pcpp::Packet& packet, std::string outputPcapBasePath, int fileNumber)
+	{
+	    std::ostringstream sstream;
+	    sstream << std::setw(4) << std::setfill( '0' ) << fileNumber;
+		return outputPcapBasePath.c_str() + sstream.str();
+	}
+
+	/**
 	 * A virtual d'tor
 	 */
 	virtual ~Splitter() {}
@@ -56,8 +70,8 @@ public:
  */
 class SplitterWithMaxFiles : public Splitter
 {
-	// in order to support all OS's, the maximum number of concurrent open file is set to 500
-	static const int MAX_NUMBER_OF_CONCURRENT_OPEN_FILES = 500;
+	// in order to support all OS's, the maximum number of concurrent open file is set to 250
+	static const int MAX_NUMBER_OF_CONCURRENT_OPEN_FILES = 250;
 
 protected:
 	int m_MaxFiles;
@@ -92,9 +106,13 @@ protected:
 
 		// zero or negative m_MaxFiles means no limit
 		if (m_MaxFiles <= 0)
-			nextFile = ++m_NextFile;
+			nextFile = m_NextFile++;
 		else // m_MaxFiles is positive, meaning there is a output file limit
-			nextFile = (++m_NextFile) % m_MaxFiles;
+		{
+			nextFile = (m_NextFile) % m_MaxFiles;
+			m_NextFile++;
+		}
+
 
 		// put the next file in the LRU list
 		int* fileToClose = m_LRUFileList.put(nextFile);
@@ -111,10 +129,10 @@ protected:
 	 * A protected c'tor for this class which gets the output file limit size. If maxFile is UNLIMITED_FILES_MAGIC_NUMBER,
 	 * it's considered there's no output files limit
 	 */
-	SplitterWithMaxFiles(int maxFiles) : m_LRUFileList(MAX_NUMBER_OF_CONCURRENT_OPEN_FILES)
+	SplitterWithMaxFiles(int maxFiles, int firstFileNumber = 0) : m_LRUFileList(MAX_NUMBER_OF_CONCURRENT_OPEN_FILES)
 	{
 		m_MaxFiles = maxFiles;
-		m_NextFile = 0;
+		m_NextFile = firstFileNumber;
 	}
 
 public:
@@ -160,7 +178,7 @@ protected:
 	/**
 	 * A protected c'tor for this class that only propagate the maxFiles to its ancestor
 	 */
-	ValueBasedSplitter(int maxFiles) : SplitterWithMaxFiles(maxFiles) {}
+	ValueBasedSplitter(int maxFiles) : SplitterWithMaxFiles(maxFiles, 1) {}
 
 	/**
 	 * A helper method that gets the packet value and returns the file to write it to, and also a file to close if the

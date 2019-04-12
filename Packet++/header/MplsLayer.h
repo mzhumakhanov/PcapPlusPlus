@@ -1,7 +1,7 @@
 #ifndef PACKETPP_MPLS_LAYER
 #define PACKETPP_MPLS_LAYER
 
-#include <Layer.h>
+#include "Layer.h"
 
 /// @file
 
@@ -29,7 +29,7 @@ namespace pcpp
 		};
 		#pragma pack(pop)
 
-		inline mpls_header* getMplsHeader() { return (mpls_header*)m_Data; };
+		inline mpls_header* getMplsHeader() { return (mpls_header*)m_Data; }
 
 	public:
 		 /** A constructor that creates the layer from an existing packet raw data
@@ -117,6 +117,8 @@ namespace pcpp
 		void computeCalculateFields();
 
 		std::string toString();
+
+		OsiModelLayer getOsiModelLayer() { return OsiModelNetworkLayer; }
 	};
 
 } // namespace pcpp

@@ -1,8 +1,8 @@
 #define LOG_MODULE CommonLogModuleIpUtils
 
-#include <Logger.h>
-#include <IpAddress.h>
-#include <IpUtils.h>
+#include "Logger.h"
+#include "IpAddress.h"
+#include "IpUtils.h"
 #include <string.h>
 #ifdef WIN32
 #include <winsock2.h>
@@ -18,23 +18,40 @@ IPAddress::~IPAddress()
 
 }
 
-std::auto_ptr<IPAddress> IPAddress::fromString(char* addressAsString)
+bool IPAddress::equals(const IPAddress* other)
+{
+	if (other == NULL)
+		return false;
+
+	if (other->getType() != getType())
+		return false;
+
+	if (other->getType() == IPv4AddressType && getType() == IPv4AddressType)
+		return *((IPv4Address*)other) == *((IPv4Address*)this);
+
+	if (other->getType() == IPv6AddressType && getType() == IPv6AddressType)
+		return *((IPv6Address*)other) == *((IPv6Address*)this);
+
+	return false;
+}
+
+IPAddress::Ptr_t IPAddress::fromString(char* addressAsString)
 {
 	in_addr ip4Addr;
 	in6_addr ip6Addr;
     if (inet_pton(AF_INET, addressAsString, &ip4Addr) != 0)
     {
-    	return std::auto_ptr<IPAddress>(new IPv4Address(addressAsString));
+    	return IPAddress::Ptr_t(new IPv4Address(addressAsString));
     }
     else if (inet_pton(AF_INET6, addressAsString, &ip6Addr) != 0)
     {
-    	return std::auto_ptr<IPAddress>(new IPv6Address(addressAsString));
+    	return IPAddress::Ptr_t(new IPv6Address(addressAsString));
     }
 
-    return std::auto_ptr<IPAddress>(NULL);
+    return IPAddress::Ptr_t();
 }
 
-std::auto_ptr<IPAddress> IPAddress::fromString(std::string addressAsString)
+IPAddress::Ptr_t IPAddress::fromString(std::string addressAsString)
 {
 	return fromString((char*)addressAsString.c_str());
 }
@@ -69,6 +86,11 @@ IPv4Address::IPv4Address(in_addr* inAddr)
 		m_IsValid = false;
 	else
 		m_IsValid = true;
+}
+
+IPAddress* IPv4Address::clone() const
+{
+	return new IPv4Address(*this);
 }
 
 void IPv4Address::init(char* addressAsString)
@@ -151,6 +173,11 @@ IPv6Address::~IPv6Address()
 	delete m_pInAddr;
 }
 
+IPAddress* IPv6Address::clone() const
+{
+	return new IPv6Address(*this);
+}
+
 void IPv6Address::init(char* addressAsString)
 {
 	m_pInAddr = new in6_addr();
@@ -196,7 +223,7 @@ void IPv6Address::copyTo(uint8_t* arr) const
 	memcpy(arr, m_pInAddr, 16);
 }
 
-bool IPv6Address::operator==(const IPv6Address& other)
+bool IPv6Address::operator==(const IPv6Address& other) const
 {
 	return (memcmp(m_pInAddr, other.m_pInAddr, 16) == 0);
 }
@@ -215,7 +242,7 @@ IPv6Address& IPv6Address::operator=(const IPv6Address& other)
 	memcpy(m_pInAddr, other.m_pInAddr, sizeof(in6_addr));
 
     strncpy(m_AddressAsString, other.m_AddressAsString, 40);
-    m_IsValid = true;
+    m_IsValid = other.m_IsValid;
 
     return *this;
 }

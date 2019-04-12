@@ -18,6 +18,9 @@
     <ClInclude Include="..\..\Common++\header\SystemUtils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Common++\header\GeneralUtils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Common++\header\IpAddress.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -33,14 +36,23 @@
     <ClInclude Include="..\..\Common++\header\MacAddress.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Common++\header\PcapPlusPlusVersion.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Common++\header\PlatformSpecificUtils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Common++\header\PointerVector.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Common++\header\TablePrinter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Common++\src\GeneralUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Common++\src\IpAddress.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -54,6 +66,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Common++\src\SystemUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common++\src\PcapPlusPlusVersion.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common++\src\TablePrinter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

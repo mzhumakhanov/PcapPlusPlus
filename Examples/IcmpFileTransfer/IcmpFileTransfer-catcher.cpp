@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <iostream>
 #include <fstream>
-#if !defined(WIN32) && !defined(WINx64)
+#if !defined(WIN32) && !defined(WINx64) && !defined(PCAPPP_MINGW_ENV) 
 #include <in.h>
 #endif
 #include "EthLayer.h"
@@ -19,6 +19,7 @@
 #include "PcapLiveDeviceList.h"
 #include "PcapFilter.h"
 #include "Common.h"
+#include "SystemUtils.h"
 
 using namespace pcpp;
 
@@ -246,7 +247,7 @@ void receiveFile(IPv4Address pitcherIP, IPv4Address catcherIP)
 				catcherIP,
 				&file,
 				icmpFTStart.fileName,
-				icmpFTStart.icmpId+1,
+				(uint16_t)(icmpFTStart.icmpId+1),
 				0,
 				0
 		};
@@ -518,6 +519,8 @@ void sendFile(std::string filePath, IPv4Address pitcherIP, IPv4Address catcherIP
  */
 int main(int argc, char* argv[])
 {
+	AppName::init(argc, argv);
+
 	bool sender, receiver;
 	IPv4Address pitcherIP = IPv4Address::Zero;
 	IPv4Address catcherIP = IPv4Address::Zero;

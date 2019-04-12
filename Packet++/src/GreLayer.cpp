@@ -1,15 +1,15 @@
 #define LOG_MODULE PacketLogModuleGreLayer
 
-#include <GreLayer.h>
-#include <EthLayer.h>
-#include <IPv4Layer.h>
-#include <IPv6Layer.h>
-#include <PPPoELayer.h>
-#include <VlanLayer.h>
-#include <MplsLayer.h>
-#include <PayloadLayer.h>
-#include <Logger.h>
-#include <IpUtils.h>
+#include "GreLayer.h"
+#include "EthLayer.h"
+#include "IPv4Layer.h"
+#include "IPv6Layer.h"
+#include "PPPoELayer.h"
+#include "VlanLayer.h"
+#include "MplsLayer.h"
+#include "PayloadLayer.h"
+#include "Logger.h"
+#include "IpUtils.h"
 #if defined(WIN32) || defined(WINx64) //for using ntohl, ntohs, etc.
 #include <winsock2.h>
 #elif LINUX
@@ -28,7 +28,7 @@ namespace pcpp
 ProtocolType GreLayer::getGREVersion(uint8_t* greData, size_t greDataLen)
 {
 	if (greDataLen < sizeof(gre_basic_header))
-		return Unknown;
+		return UnknownProtocol;
 
 	uint8_t version = *(greData+1);
 	version &= 0x07;
@@ -37,7 +37,7 @@ ProtocolType GreLayer::getGREVersion(uint8_t* greData, size_t greDataLen)
 	else if (version == 1)
 		return GREv1;
 	else
-		return Unknown;
+		return UnknownProtocol;
 }
 
 uint8_t* GreLayer::getFieldValue(GreField field, bool returnOffsetEvenIfFieldMissing)

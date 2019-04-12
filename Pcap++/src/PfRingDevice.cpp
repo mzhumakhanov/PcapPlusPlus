@@ -2,11 +2,11 @@
 
 #define LOG_MODULE PcapLogModulePfRingDevice
 
-#include <PfRingDevice.h>
-#include <EthLayer.h>
-#include <VlanLayer.h>
-#include <Logger.h>
-#include <PlatformSpecificUtils.h>
+#include "PfRingDevice.h"
+#include "EthLayer.h"
+#include "VlanLayer.h"
+#include "Logger.h"
+#include "PlatformSpecificUtils.h"
 #include <errno.h>
 #include <pfring.h>
 
@@ -19,7 +19,6 @@ namespace pcpp
 
 PfRingDevice::PfRingDevice(const char* deviceName) : m_MacAddress(MacAddress::Zero)
 {
-	m_PcapDescriptor = NULL; //not used in this class
 	m_NumOfOpenedRxChannels = 0;
 	m_DeviceOpened = false;
 	strcpy(m_DeviceName, deviceName);
@@ -38,6 +37,7 @@ PfRingDevice::PfRingDevice(const char* deviceName) : m_MacAddress(MacAddress::Ze
 PfRingDevice::~PfRingDevice()
 {
 	close();
+	delete [] m_PfRingDescriptors;
 }
 
 
@@ -359,15 +359,7 @@ bool PfRingDevice::setFilter(std::string filterAsString)
 }
 
 
-bool PfRingDevice::setFilter(GeneralFilter& filter)
-{
-	std::string filterAsString = "";
-	filter.parseToString(filterAsString);
-	return setFilter(filterAsString);
-}
-
-
-bool PfRingDevice::removeFilter()
+bool PfRingDevice::clearFilter()
 {
 	if (!m_IsFilterCurrentlySet)
 		return true;
@@ -610,7 +602,7 @@ void* PfRingDevice::captureThreadMain(void *ptr)
 	return (void*)NULL;
 }
 
-void PfRingDevice::getThreadStatistics(SystemCore core, pcap_stat& stats)
+void PfRingDevice::getThreadStatistics(SystemCore core, PfRingStats& stats)
 {
 	pfring* ring = NULL;
 	uint8_t coreId = core.Id;
@@ -625,9 +617,8 @@ void PfRingDevice::getThreadStatistics(SystemCore core, pcap_stat& stats)
 			LOG_ERROR("Can't retrieve statistics for core [%d], pfring_stats failed", coreId);
 			return;
 		}
-		stats.ps_drop = (u_int)tempStats.drop;
-		stats.ps_ifdrop = (u_int)tempStats.drop;
-		stats.ps_recv = (u_int)tempStats.recv;
+		stats.drop = (uint64_t)tempStats.drop;
+		stats.recv = (uint64_t)tempStats.recv;
 	}
 	else
 	{
@@ -635,27 +626,25 @@ void PfRingDevice::getThreadStatistics(SystemCore core, pcap_stat& stats)
 	}
 }
 
-void PfRingDevice::getCurrentThreadStatistics(pcap_stat& stats)
+void PfRingDevice::getCurrentThreadStatistics(PfRingStats& stats)
 {
 	getThreadStatistics(getCurrentCoreId(), stats);
 }
 
-void PfRingDevice::getStatistics(pcap_stat& stats)
+void PfRingDevice::getStatistics(PfRingStats& stats)
 {
-	stats.ps_drop = 0;
-	stats.ps_ifdrop = 0;
-	stats.ps_recv = 0;
+	stats.drop = 0;
+	stats.recv = 0;
 
 	for (int coreId = 0; coreId < MAX_NUM_OF_CORES; coreId++)
 	{
 		if (!m_CoreConfiguration[coreId].IsInUse)
 			continue;
 
-		pcap_stat tempStat;
+		PfRingStats tempStat;
 		getThreadStatistics(SystemCores::IdToSystemCore[coreId], tempStat);
-		stats.ps_drop += tempStat.ps_drop;
-		stats.ps_ifdrop += tempStat.ps_ifdrop;
-		stats.ps_recv += tempStat.ps_recv;
+		stats.drop += tempStat.drop;
+		stats.recv += tempStat.recv;
 
 		if (!m_CoreConfiguration[coreId].IsAffinitySet)
 			break;
@@ -764,7 +753,7 @@ bool PfRingDevice::sendData(const uint8_t* packetData, int packetDataLength, boo
 		{
 			tries++;
 			LOG_DEBUG("Try #%d: Got ENOBUFS (write buffer full) error while sending packet. Sleeping 20 usec and trying again", tries);
-			usleep(20);
+			usleep(2000);
 		}
 		else
 			break;
@@ -863,7 +852,7 @@ int PfRingDevice::sendPackets(const RawPacketVector& rawPackets)
 	// The following method isn't supported in PF_RING aware drivers, probably only in DNA and ZC
 	pfring_flush_tx_packets(m_PfRingDescriptors[0]);
 
-	LOG_DEBUG("%d out of %d raw packets were sent successfully", packetsSent, rawPackets.size());
+	LOG_DEBUG("%d out of %d raw packets were sent successfully", packetsSent, (int)rawPackets.size());
 
 	return packetsSent;
 }

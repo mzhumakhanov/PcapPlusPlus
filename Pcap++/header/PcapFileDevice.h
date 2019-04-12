@@ -1,8 +1,8 @@
 #ifndef PCAPPP_FILE_DEVICE
 #define PCAPPP_FILE_DEVICE
 
-#include <PcapDevice.h>
-#include <RawPacket.h>
+#include "PcapDevice.h"
+#include "RawPacket.h"
 
 /// @file
 
@@ -72,6 +72,15 @@ namespace pcpp
 		uint64_t getFileSize();
 
 		virtual bool getNextPacket(RawPacket& rawPacket) = 0;
+
+		/**
+		 * Read the next N packets into a raw packet vector
+		 * @param[out] packetVec The raw packet vector to read packets into
+		 * @param[in] numOfPacketsToRead Number of packets to read. If value <0 all remaining packets in the file will be read into the
+		 * raw packet vector (this is the default value)
+		 * @return The number of packets actually read
+		 */
+		int getNextPackets(RawPacketVector& packetVec, int numOfPacketsToRead = -1);
 
 		/**
 		 * A static method that creates an instance of the reader best fit to read the file. It decides by the file extension: for .pcapng
@@ -274,6 +283,7 @@ namespace pcpp
 
 		virtual bool writePackets(const RawPacketVector& packets) = 0;
 
+		using IFileDevice::open;
 		virtual bool open(bool appendMode) = 0;
 	};
 
@@ -376,12 +386,17 @@ namespace pcpp
 	class PcapNgFileWriterDevice : public IFileWriterDevice
 	{
 	private:
-
 		void* m_LightPcapNg;
+		struct bpf_program m_Bpf;
+		bool m_BpfInitialized;
+		int m_BpfLinkType;
+		std::string m_CurFilter;
 
 		// private copy c'tor
 		PcapNgFileWriterDevice(const PcapFileWriterDevice& other);
 		PcapNgFileWriterDevice& operator=(const PcapNgFileWriterDevice& other);
+
+		bool matchPacketWithFilter(const uint8_t* packetData, size_t packetLen, timeval packetTimestamp, uint16_t linkType);
 
 	public:
 
@@ -472,6 +487,14 @@ namespace pcpp
 		 * @param[out] stats The stats struct where stats are returned
 		 */
 		void getStatistics(pcap_stat& stats);
+
+		/**
+		 * Set a filter for PcapNG writer device. Only packets that match the filter will be persisted
+		 * @param[in] filterAsString The filter to be set in Berkeley Packet Filter (BPF) syntax (http://biot.com/capstats/bpf.html)
+		 * @return True if filter set successfully, false otherwise
+		 */
+		bool setFilter(std::string filterAsString);
+
 	};
 
 }// namespace pcpp

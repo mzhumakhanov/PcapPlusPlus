@@ -19,7 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <algorithm>
-#if !defined(WIN32) && !defined(WINx64) //for using ntohl, ntohs, etc.
+#if !defined(WIN32) && !defined(WINx64) && !defined(PCAPPP_MINGW_ENV) //for using ntohl, ntohs, etc.
 #include <in.h>
 #endif
 #include "PcapLiveDeviceList.h"
@@ -29,6 +29,7 @@
 #include "TablePrinter.h"
 #include "PlatformSpecificUtils.h"
 #include "SystemUtils.h"
+#include "PcapPlusPlusVersion.h"
 #include <getopt.h>
 
 #define EXIT_WITH_ERROR(reason, ...) do { \
@@ -64,6 +65,7 @@ static struct option HttpAnalyzerOptions[] =
 	{"disable-rates-print", no_argument, 0, 'd'},
 	{"list-interfaces", no_argument, 0, 'l'},
 	{"help", no_argument, 0, 'h'},
+	{"version", no_argument, 0, 'v'},
     {0, 0, 0, 0}
 };
 
@@ -83,20 +85,34 @@ void printUsage()
 {
 	printf("\nUsage: PCAP file mode:\n"
 			"----------------------\n"
-			"HttpAnalyzer [-h] -f input_file\n"
+			"%s [-vh] -f input_file\n"
 			"\nOptions:\n\n"
 			"    -f           : The input pcap/pcapng file to analyze. Required argument for this mode\n"
+			"    -v             : Displays the current version and exists\n"
 			"    -h           : Displays this help message and exits\n\n"
 			"Usage: Live traffic mode:\n"
 			"-------------------------\n"
-			"HttpAnalyzer [-hld] [-o output_file] [-r calc_period] -i interface\n"
+			"%s [-hvld] [-o output_file] [-r calc_period] -i interface\n"
 			"\nOptions:\n\n"
 			"    -i interface   : Use the specified interface. Can be interface name (e.g eth0) or interface IPv4 address\n"
 			"    -o output_file : Save all captured HTTP packets to a pcap file. Notice this may cause performance degradation\n"
 			"    -r calc_period : The period in seconds to calculate rates. If not provided default is 2 seconds\n"
 			"    -d             : Disable periodic rates calculation\n"
 			"    -h             : Displays this help message and exits\n"
-			"    -l             : Print the list of interfaces and exists\n");
+			"    -v             : Displays the current version and exists\n"
+			"    -l             : Print the list of interfaces and exists\n", AppName::get().c_str(), AppName::get().c_str());
+	exit(0);
+}
+
+
+/**
+ * Print application version
+ */
+void printAppVersion()
+{
+	printf("%s %s\n", AppName::get().c_str(), getPcapPlusPlusVersionFull().c_str());
+	printf("Built: %s\n", getBuildDateTime().c_str());
+	printf("Built from: %s\n", getGitInfo().c_str());
 	exit(0);
 }
 
@@ -143,49 +159,65 @@ void httpPacketArrive(RawPacket* packet, PcapLiveDevice* dev, void* cookie)
 void printMethods(HttpRequestStats& reqStatscollector)
 {
 	// create the table
-	TablePrinter<std::string, int> printer("Method", 9, "Count", 5);
+	std::vector<std::string> columnNames;
+	columnNames.push_back("Method");
+	columnNames.push_back("Count");
+	std::vector<int> columnsWidths;
+	columnsWidths.push_back(9);
+	columnsWidths.push_back(5);
+	TablePrinter printer(columnNames, columnsWidths);
+
 
 	// go over the method count table and print each method and count
 	for(std::map<HttpRequestLayer::HttpMethod, int>::iterator iter = reqStatscollector.methodCount.begin();
 			iter != reqStatscollector.methodCount.end();
 			iter++)
 	{
+		std::stringstream values;
+
 		switch (iter->first)
 		{
 		case HttpRequestLayer::HttpGET:
-			printer.printRow("GET", reqStatscollector.methodCount[HttpRequestLayer::HttpGET]);
+			values << "GET" << "|" << reqStatscollector.methodCount[HttpRequestLayer::HttpGET];
+			printer.printRow(values.str(), '|');
 			break;
 		case HttpRequestLayer::HttpPOST:
-			printer.printRow("POST", reqStatscollector.methodCount[HttpRequestLayer::HttpPOST]);
+			values << "POST" << "|" << reqStatscollector.methodCount[HttpRequestLayer::HttpPOST];
+			printer.printRow(values.str(), '|');
 			break;
 		case HttpRequestLayer::HttpCONNECT:
-			printer.printRow("CONNECT", reqStatscollector.methodCount[HttpRequestLayer::HttpCONNECT]);
+			values << "CONNECT" << "|" << reqStatscollector.methodCount[HttpRequestLayer::HttpCONNECT];
+			printer.printRow(values.str(), '|');
 			break;
 		case HttpRequestLayer::HttpDELETE:
-			printer.printRow("DELETE", reqStatscollector.methodCount[HttpRequestLayer::HttpDELETE]);
+			values << "DELETE" << "|" << reqStatscollector.methodCount[HttpRequestLayer::HttpDELETE];
+			printer.printRow(values.str(), '|');
 			break;
 		case HttpRequestLayer::HttpHEAD:
-			printer.printRow("HEAD", reqStatscollector.methodCount[HttpRequestLayer::HttpHEAD]);
+			values << "HEAD" << "|" << reqStatscollector.methodCount[HttpRequestLayer::HttpHEAD];
+			printer.printRow(values.str(), '|');
 			break;
 		case HttpRequestLayer::HttpOPTIONS:
-			printer.printRow("OPTIONS", reqStatscollector.methodCount[HttpRequestLayer::HttpOPTIONS]);
+			values << "OPTIONS" << "|" << reqStatscollector.methodCount[HttpRequestLayer::HttpOPTIONS];
+			printer.printRow(values.str(), '|');
 			break;
 		case HttpRequestLayer::HttpPATCH:
-			printer.printRow("PATCH", reqStatscollector.methodCount[HttpRequestLayer::HttpPATCH]);
+			values << "PATCH" << "|" << reqStatscollector.methodCount[HttpRequestLayer::HttpPATCH];
+			printer.printRow(values.str(), '|');
 			break;
 		case HttpRequestLayer::HttpPUT:
-			printer.printRow("PUT", reqStatscollector.methodCount[HttpRequestLayer::HttpPUT]);
+			values << "PUT" << "|" << reqStatscollector.methodCount[HttpRequestLayer::HttpPUT];
+			printer.printRow(values.str(), '|');
 			break;
 		case HttpRequestLayer::HttpTRACE:
-			printer.printRow("TRACE", reqStatscollector.methodCount[HttpRequestLayer::HttpTRACE]);
+			values << "TRACE" << "|" << reqStatscollector.methodCount[HttpRequestLayer::HttpTRACE];
+			printer.printRow(values.str(), '|');
 			break;
 		default:
 			break;
 		}
 
 	}
-
-	printer.closeTable();
 }
 
 
@@ -203,7 +235,13 @@ bool hostnameComparer(std::pair<std::string, int> first, std::pair<std::string, 
 void printHostnames(HttpRequestStats& reqStatscollector)
 {
 	// create the table
-	TablePrinter<std::string, int> printer("Hostname", 40, "Count", 5);
+	std::vector<std::string> columnNames;
+	columnNames.push_back("Hostname");
+	columnNames.push_back("Count");
+	std::vector<int> columnsWidths;
+	columnsWidths.push_back(40);
+	columnsWidths.push_back(5);
+	TablePrinter printer(columnNames, columnsWidths);
 
 	// sort the hostname count map so the most popular hostnames will be first
 	// since it's not possible to sort a std::map you must copy it to a std::vector and sort it then
@@ -215,10 +253,10 @@ void printHostnames(HttpRequestStats& reqStatscollector)
 			iter != map2vec.end();
 			iter++)
 	{
-		printer.printRow(iter->first, iter->second);
+		std::stringstream values;
+		values << iter->first << "|" << iter->second;
+		printer.printRow(values.str(), '|');
 	}
-
-	printer.closeTable();
 }
 
 
@@ -228,17 +266,23 @@ void printHostnames(HttpRequestStats& reqStatscollector)
 void printStatusCodes(HttpResponseStats& resStatscollector)
 {
 	// create the table
-	TablePrinter<std::string, int> printer("Status Code", 28, "Count", 5);
+	std::vector<std::string> columnNames;
+	columnNames.push_back("Status Code");
+	columnNames.push_back("Count");
+	std::vector<int> columnsWidths;
+	columnsWidths.push_back(28);
+	columnsWidths.push_back(5);
+	TablePrinter printer(columnNames, columnsWidths);
 
 	// go over the status code map and print each item
 	for(std::map<std::string, int>::iterator iter = resStatscollector.statusCodeCount.begin();
 			iter != resStatscollector.statusCodeCount.end();
 			iter++)
 	{
-		printer.printRow(iter->first, iter->second);
+		std::stringstream values;
+		values << iter->first << "|" << iter->second;
+		printer.printRow(values.str(), '|');
 	}
-
-	printer.closeTable();
 }
 
 
@@ -248,17 +292,23 @@ void printStatusCodes(HttpResponseStats& resStatscollector)
 void printContentTypes(HttpResponseStats& resStatscollector)
 {
 	// create the table
-	TablePrinter<std::string, int> printer("Content-type", 30, "Count", 5);
+	std::vector<std::string> columnNames;
+	columnNames.push_back("Content-type");
+	columnNames.push_back("Count");
+	std::vector<int> columnsWidths;
+	columnsWidths.push_back(30);
+	columnsWidths.push_back(5);
+	TablePrinter printer(columnNames, columnsWidths);
 
 	// go over the status code map and print each item
 	for(std::map<std::string, int>::iterator iter = resStatscollector.contentTypeCount.begin();
 			iter != resStatscollector.contentTypeCount.end();
 			iter++)
 	{
-		printer.printRow(iter->first, iter->second);
+		std::stringstream values;
+		values << iter->first << "|" << iter->second;
+		printer.printRow(values.str(), '|');
 	}
-
-	printer.closeTable();
 }
 
 
@@ -447,6 +497,8 @@ void analyzeHttpFromLiveTraffic(PcapLiveDevice* dev, bool printRatesPeriodicaly,
  */
 int main(int argc, char* argv[])
 {
+	AppName::init(argc, argv);
+
 	std::string interfaceNameOrIP = "";
 	bool printRatesPeriodicaly = true;
 	int printRatePeriod = DEFAULT_CALC_RATES_PERIOD_SEC;
@@ -458,7 +510,7 @@ int main(int argc, char* argv[])
 	int optionIndex = 0;
 	char opt = 0;
 
-	while((opt = getopt_long (argc, argv, "i:f:o:r:hld", HttpAnalyzerOptions, &optionIndex)) != -1)
+	while((opt = getopt_long (argc, argv, "i:f:o:r:hvld", HttpAnalyzerOptions, &optionIndex)) != -1)
 	{
 		switch (opt)
 		{
@@ -481,6 +533,9 @@ int main(int argc, char* argv[])
 				break;
 			case 'h':
 				printUsage();
+				break;
+			case 'v':
+				printAppVersion();
 				break;
 			case 'l':
 				listInterfaces();

@@ -13,46 +13,39 @@ OBJS_FILENAMES := $(patsubst %.cpp,Obj/%.o,$(SOURCES))
 
 Obj/%.o: %.cpp
 	@echo 'Building file: $<'
-	@echo 'Invoking: GCC C++ Compiler'
-	$(G++) $(PCAPPP_INCLUDES) -O0 -g -Wall -c -fmessage-length=0 -MMD -MP -MF"$(@:Obj/%.o=Obj/%.d)" -MT"$(@:Obj/%.o=Obj/%.d)" -o "$@" "$<"
-	@echo 'Finished building: $<'
-	@echo ' '
+	@$(CXX) $(PCAPPP_BUILD_FLAGS) $(PCAPPP_INCLUDES) -O0 -g -Wall -c -fmessage-length=0 -MMD -MP -MF"$(@:Obj/%.o=Obj/%.d)" -MT"$(@:Obj/%.o=Obj/%.d)" -o "$@" "$<"
 
 
 UNAME := $(shell uname)
+CUR_TARGET := $(notdir $(shell pwd))
 
-# All Target
+.SILENT:
+
 all: dependents IcmpFileTransfer-pitcher IcmpFileTransfer-catcher
 
+start:
+	@echo '==> Building target: $(CUR_TARGET)'
+
 create-directories:
-	$(MKDIR) -p Obj
-	$(MKDIR) -p Bin
+	@$(MKDIR) -p Obj
+	@$(MKDIR) -p Bin
 
 dependents:
-	cd $(PCAPPLUSPLUS_HOME) && $(MAKE) libs
+	@cd $(PCAPPLUSPLUS_HOME) && $(MAKE) libs
 
-# Tool invocations
-IcmpFileTransfer-pitcher: create-directories $(OBJS_FILENAMES)
-	@echo uname is: $(UNAME)
-	@echo 'Building target: $@'
-	@echo 'Invoking C++ Linker'
-	$(G++) $(PCAPPP_LIBS_DIR) $(PCAPPP_BUILD_FLAGS) -o "./Bin/IcmpFileTransfer-pitcher$(BIN_EXT)" Obj/Common.o Obj/IcmpFileTransfer-pitcher.o $(PCAPPP_LIBS)
-	$(PCAPPP_POST_BUILD)
-	@echo 'Finished successfully building target: $@'
+IcmpFileTransfer-pitcher: start create-directories $(OBJS_FILENAMES)
+	@$(CXX) $(PCAPPP_BUILD_FLAGS) $(PCAPPP_LIBS_DIR) -o "./Bin/IcmpFileTransfer-pitcher$(BIN_EXT)" Obj/Common.o Obj/IcmpFileTransfer-pitcher.o $(PCAPPP_LIBS)
+	@$(PCAPPP_POST_BUILD)
+	@echo 'Finished successfully building: $(CUR_TARGET)'
 	@echo ' '
 
-IcmpFileTransfer-catcher: create-directories $(OBJS_FILENAMES)
-	@echo uname is: $(UNAME)
-	@echo 'Building target: $@'
-	@echo 'Invoking C++ Linker'
-	$(G++) $(PCAPPP_LIBS_DIR) $(PCAPPP_BUILD_FLAGS) -o "./Bin/IcmpFileTransfer-catcher$(BIN_EXT)" Obj/Common.o  Obj/IcmpFileTransfer-catcher.o $(PCAPPP_LIBS)
-	$(PCAPPP_POST_BUILD)
-	@echo 'Finished successfully building target: $@'
+IcmpFileTransfer-catcher: start create-directories $(OBJS_FILENAMES)
+	@$(CXX) $(PCAPPP_BUILD_FLAGS) $(PCAPPP_LIBS_DIR) -o "./Bin/IcmpFileTransfer-catcher$(BIN_EXT)" Obj/Common.o  Obj/IcmpFileTransfer-catcher.o $(PCAPPP_LIBS)
+	@$(PCAPPP_POST_BUILD)
+	@echo 'Finished successfully building: $(CUR_TARGET)'
 	@echo ' '
 
-
-# Other Targets
 clean:
-	$(RM) -rf ./Obj/*
-	$(RM) -rf ./Bin/*
-	@echo 'Clean finished'
+	@$(RM) -rf ./Obj/*
+	@$(RM) -rf ./Bin/*
+	@echo 'Clean finished: $(CUR_TARGET)'

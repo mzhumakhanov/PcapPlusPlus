@@ -3,9 +3,10 @@
 #define LOG_MODULE PcapLogModuleDpdkDevice
 
 #define __STDC_LIMIT_MACROS
+#define __STDC_FORMAT_MACROS
 
-#include <DpdkDeviceList.h>
-#include <Logger.h>
+#include "DpdkDeviceList.h"
+#include "Logger.h"
 
 #include <rte_config.h>
 #include <rte_common.h>
@@ -31,7 +32,7 @@
 #include <rte_ring.h>
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
-
+#include <rte_version.h>
 
 #include <sstream>
 #include <iomanip>
@@ -65,7 +66,7 @@ const uint32_t initDpdkArgc = 7;
 const uint32_t maxArgLen = 20;
 char** initDpdkArgv;
 
-bool DpdkDeviceList::initDpdk(CoreMask coreMask, uint32_t mBufPoolSizePerDevice)
+bool DpdkDeviceList::initDpdk(CoreMask coreMask, uint32_t mBufPoolSizePerDevice, uint8_t masterCore)
 {
 	if (m_IsDpdkInitialized)
 	{
@@ -99,7 +100,7 @@ bool DpdkDeviceList::initDpdk(CoreMask coreMask, uint32_t mBufPoolSizePerDevice)
 	dpdkParamsStream << "-c ";
 	dpdkParamsStream << "0x" << std::hex << std::setw(2) << std::setfill('0') << coreMask << " ";
 	dpdkParamsStream << "--master-lcore ";
-	dpdkParamsStream << "0";
+	dpdkParamsStream << (int)masterCore;
 
 	std::string dpdkParamsArray[initDpdkArgc];
 	initDpdkArgv = new char*[initDpdkArgc];
@@ -153,7 +154,12 @@ bool DpdkDeviceList::initDpdkDevices(uint32_t mBufPoolSizePerDevice)
 	if (m_IsInitialized)
 		return true;
 
-	int numOfPorts = rte_eth_dev_count();
+#if (RTE_VER_YEAR < 18) || (RTE_VER_YEAR == 18 && RTE_VER_MONTH < 5)
+	int numOfPorts = (int)rte_eth_dev_count();
+#else
+	int numOfPorts = (int)rte_eth_dev_count_avail();
+#endif
+
 	if (numOfPorts <= 0)
 	{
 		LOG_ERROR("Zero DPDK ports are initialized. Something went wrong while initializing DPDK");
@@ -169,7 +175,7 @@ bool DpdkDeviceList::initDpdkDevices(uint32_t mBufPoolSizePerDevice)
 		LOG_DEBUG("DpdkDevice #%d: Name='%s', PCI-slot='%s', PMD='%s', MAC Addr='%s'",
 				i,
 				newDevice->getDeviceName().c_str(),
-				newDevice->getPciAddress().toString().c_str(),
+				newDevice->getPciAddress().c_str(),
 				newDevice->getPMDName().c_str(),
 				newDevice->getMacAddress().toString().c_str());
 		m_DpdkDeviceList.push_back(newDevice);
@@ -195,7 +201,7 @@ DpdkDevice* DpdkDeviceList::getDeviceByPort(int portId)
 	return m_DpdkDeviceList.at(portId);
 }
 
-DpdkDevice* DpdkDeviceList::getDeviceByPciAddress(const PciAddress& pciAddr)
+DpdkDevice* DpdkDeviceList::getDeviceByPciAddress(const std::string& pciAddr)
 {
 	if (!isInitialized())
 	{
@@ -250,15 +256,26 @@ SystemCore DpdkDeviceList::getDpdkMasterCore()
 
 void DpdkDeviceList::setDpdkLogLevel(LoggerPP::LogLevel logLevel)
 {
+#if (RTE_VER_YEAR > 17) || (RTE_VER_YEAR == 17 && RTE_VER_MONTH >= 11)
+	if (logLevel == LoggerPP::Normal)
+		rte_log_set_global_level(RTE_LOG_NOTICE);
+	else // logLevel == LoggerPP::Debug
+		rte_log_set_global_level(RTE_LOG_DEBUG);
+#else
 	if (logLevel == LoggerPP::Normal)
 		rte_set_log_level(RTE_LOG_NOTICE);
 	else // logLevel == LoggerPP::Debug
 		rte_set_log_level(RTE_LOG_DEBUG);
+#endif
 }
 
 LoggerPP::LogLevel DpdkDeviceList::getDpdkLogLevel()
 {
+#if (RTE_VER_YEAR > 17) || (RTE_VER_YEAR == 17 && RTE_VER_MONTH >= 11)
+	if (rte_log_get_global_level() <= RTE_LOG_NOTICE)
+#else
 	if (rte_get_log_level() <= RTE_LOG_NOTICE)
+#endif
 		return LoggerPP::Normal;
 	else
 		return LoggerPP::Debug;

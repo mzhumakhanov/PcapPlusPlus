@@ -1,9 +1,9 @@
 #ifndef PACKETPP_ARP_LAYER
 #define PACKETPP_ARP_LAYER
 
-#include <Layer.h>
-#include <IpAddress.h>
-#include <MacAddress.h>
+#include "Layer.h"
+#include "IpAddress.h"
+#include "MacAddress.h"
 
 /// @file
 
@@ -64,7 +64,7 @@ namespace pcpp
 		 * @param[in] prevLayer A pointer to the previous layer
 		 * @param[in] packet A pointer to the Packet instance where layer will be stored in
 		 */
-		ArpLayer(uint8_t* data, size_t dataLen, Layer* prevLayer, Packet* packet) : Layer(data, dataLen, prevLayer, packet) { m_Protocol = ARP; }
+		ArpLayer(uint8_t* data, size_t dataLen, Layer* prevLayer, Packet* packet) : Layer(data, dataLen, prevLayer, packet) { m_Protocol = ARP; m_DataLen = sizeof(arphdr); }
 
 		/**
 		 * A constructor that allocates a new ARP header
@@ -82,7 +82,7 @@ namespace pcpp
 		 * Get a pointer to the ARP header. Notice this points directly to the data, so every change will change the actual packet data
 		 * @return A pointer to the @ref arphdr
 		 */
-		inline arphdr* getArpHeader() { return (arphdr*)m_Data; };
+		inline arphdr* getArpHeader() { return (arphdr*)m_Data; }
 
 		/**
 		 * Get the sender hardware address (SHA) in the form of MacAddress
@@ -132,6 +132,8 @@ namespace pcpp
 		void computeCalculateFields();
 
 		std::string toString();
+
+		OsiModelLayer getOsiModelLayer() { return OsiModelNetworkLayer; }
 	};
 
 } // namespace pcpp

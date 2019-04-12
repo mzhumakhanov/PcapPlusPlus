@@ -20,7 +20,6 @@ namespace pcpp
 
 	/**
 	 * An enum describing all known link layer type. Taken from: http://www.tcpdump.org/linktypes.html .
-	 * Currently only Ethernet (1) and SLL (113) are supported
 	 */
 	enum LinkLayerType
 	{
@@ -271,6 +270,11 @@ namespace pcpp
 		 * @param[in] other The instance to copy from
 		 */
 		RawPacket& operator=(const RawPacket& other);
+
+		/**
+		 * @return RawPacket object type. Each derived class should return a different value
+		 */
+		virtual inline uint8_t getObjectType() const { return 0; }
 
 		/**
 		 * Set a raw data. If data was already set and deleteRawDataAtDestructor was set to 'true' the old data will be freed first

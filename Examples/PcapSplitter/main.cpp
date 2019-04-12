@@ -58,6 +58,7 @@
 #include "ConnectionSplitters.h"
 #include <getopt.h>
 #include <SystemUtils.h>
+#include <PcapPlusPlusVersion.h>
 
 
 using namespace pcpp;
@@ -70,6 +71,7 @@ static struct option PcapSplitterOptions[] =
 	{"param", required_argument, 0, 'p'},
 	{"filter", required_argument, 0, 'i'},
 	{"help", no_argument, 0, 'h'},
+	{"version", no_argument, 0, 'v'},
     {0, 0, 0, 0}
 };
 
@@ -89,6 +91,7 @@ static struct option PcapSplitterOptions[] =
 #define SPLIT_BY_2_TUPLE       "ip-src-dst"
 #define SPLIT_BY_5_TUPLE       "connection"
 #define SPLIT_BY_BPF_FILTER    "bpf-filter"
+#define SPLIT_BY_ROUND_ROBIN   "round-robin"
 
 #if defined(WIN32) || defined(WINx64)
 #define SEPARATOR '\\'
@@ -103,7 +106,7 @@ void printUsage()
 {
 	printf("\nUsage:\n"
 			"-------\n"
-			"PcapSplitter [-h] [-i filter] -f pcap_file -o output_dir -m split_method [-p split_param]\n"
+			"%s [-h] [-v] [-i filter] -f pcap_file -o output_dir -m split_method [-p split_param]\n"
 			"\nOptions:\n\n"
 			"    -f pcap_file    : Input pcap file name\n"
 			"    -o output_dir   : The directory where the output files shall be written\n"
@@ -123,6 +126,8 @@ void printUsage()
 			"                      'bpf-filter'   - split file into two files: one that contains all packets\n"
 			"                                       matching the given BPF filter (file #0) and one that contains\n"
 			"                                       the rest of the packets (file #1)\n"
+			"                      'round-robin'  - split the file in a round-robin manner - each packet to a\n"
+			"                                       different file\n"
 			"    -p split-param  : The relevant parameter for the split method:\n"
 			"                      'method = file-size'    => split-param is the max size per file (in bytes).\n"
 			"                                                 split-param is required for this method\n"
@@ -139,8 +144,22 @@ void printUsage()
 			"                      'method = connection'   => split-param is max number of files to open.\n"
 			"                                                 If not provided the default is unlimited number of files\n"
 			"                      'method = bpf-filter'   => split-param is the BPF filter to match upon\n"
+			"                      'method = round-robin'  => split-param is number of files to round-robin packets between\n"
 			"    -i filter       : Apply a BPF filter, meaning only filtered packets will be counted in the split\n"
-			"    -h              : Displays this help message and exits\n");
+			"    -v              : Displays the current version and exists\n"
+			"    -h              : Displays this help message and exits\n", AppName::get().c_str());
+	exit(0);
+}
+
+
+/**
+ * Print application version
+ */
+void printAppVersion()
+{
+	printf("%s %s\n", AppName::get().c_str(), getPcapPlusPlusVersionFull().c_str());
+	printf("Built: %s\n", getBuildDateTime().c_str());
+	printf("Built from: %s\n", getGitInfo().c_str());
 	exit(0);
 }
 
@@ -184,12 +203,13 @@ std::string getFileNameWithoutExtension(const std::string& path)
 	return("");
 }
 
-
 /**
  * main method of this utility
  */
 int main(int argc, char* argv[])
 {
+	AppName::init(argc, argv);
+
 	std::string inputPcapFileName = "";
 	std::string outputPcapDir = "";
 
@@ -205,7 +225,7 @@ int main(int argc, char* argv[])
 	int optionIndex = 0;
 	char opt = 0;
 
-	while((opt = getopt_long (argc, argv, "f:o:m:p:i:h", PcapSplitterOptions, &optionIndex)) != -1)
+	while((opt = getopt_long (argc, argv, "f:o:m:p:i:vh", PcapSplitterOptions, &optionIndex)) != -1)
 	{
 		switch (opt)
 		{
@@ -229,6 +249,9 @@ int main(int argc, char* argv[])
 				break;
 			case 'h':
 				printUsage();
+				break;
+			case 'v':
+				printAppVersion();
 				break;
 			default:
 				printUsage();
@@ -298,6 +321,11 @@ int main(int argc, char* argv[])
 	{
 		splitter = new BpfCriteriaSplitter(std::string(param));
 	}
+	else if (method == SPLIT_BY_ROUND_ROBIN)
+	{
+		int paramAsInt = (paramWasSet ? atoi(param) : 0);
+		splitter = new RoundRobinSplitter(paramAsInt);
+	}
 	else
 		EXIT_WITH_ERROR("Unknown method '%s'", method.c_str());
 
@@ -313,9 +341,10 @@ int main(int argc, char* argv[])
 	std::string outputPcapFileName = outputPcapDir + std::string(1, SEPARATOR) + getFileNameWithoutExtension(inputPcapFileName) + "-";
 
 	// open a pcap file for reading
-	PcapFileReaderDevice reader(inputPcapFileName.c_str());
+	IFileReaderDevice* reader = IFileReaderDevice::getReader(inputPcapFileName.c_str());
+	bool isReaderPcapng = (dynamic_cast<PcapNgFileReaderDevice*>(reader) != NULL);
 
-	if (!reader.open())
+	if (reader == NULL || !reader->open())
 	{
 		EXIT_WITH_ERROR("Error opening input pcap file\n");
 	}
@@ -323,21 +352,24 @@ int main(int argc, char* argv[])
 	// set a filter if provided
 	if (filter != "")
 	{
-		if (!reader.setFilter(filter))
+		if (!reader->setFilter(filter))
 			EXIT_WITH_ERROR("Couldn't set filter '%s'", filter.c_str());
 	}
 
 	printf("Started...\n");
 
+	// determine output file extension
+	std::string outputFileExtenison = (isReaderPcapng ? ".pcapng" : ".pcap");
+
 	int packetCountSoFar = 0;
 	int numOfFiles = 0;
 	RawPacket rawPacket;
 
-	// prepare a map of file number to PcapFileWriterDevice
-	std::map<int, PcapFileWriterDevice*> outputFiles;
+	// prepare a map of file number to IFileWriterDevice
+	std::map<int, IFileWriterDevice*> outputFiles;
 
 	// read all packets from input file, for each packet do:
-	while (reader.getNextPacket(rawPacket))
+	while (reader->getNextPacket(rawPacket))
 	{
 		// parse the raw packet into a parsed packet
 		Packet parsedPacket(&rawPacket);
@@ -350,14 +382,20 @@ int main(int argc, char* argv[])
 		// if file number is seen for the first time (meaning it's the first packet written to it)
 		if (outputFiles.find(fileNum) == outputFiles.end())
 		{
-			// prepare the file name in the format of:
-			// /requested-path/original-file-name-[file-number].pcap
-		    std::ostringstream sstream;
-		    sstream << std::setw(4) << std::setfill( '0' ) << fileNum;
-			std::string fileName = outputPcapFileName.c_str() + sstream.str() + ".pcap";
+			// get file name from the splitter and add the .pcap extension
+			std::string fileName = splitter->getFileName(parsedPacket, outputPcapFileName, fileNum) + outputFileExtenison;
 
-			// create a new PcapFileWriterDevice for this file
-			outputFiles[fileNum] = new PcapFileWriterDevice(fileName.c_str());
+			// create a new IFileWriterDevice for this file
+			if (isReaderPcapng)
+			{
+				// if reader is pcapng, create a pcapng writer
+				outputFiles[fileNum] = new PcapNgFileWriterDevice(fileName.c_str());
+			}
+			else
+			{
+				// if reader is pcap, create a pcap writer
+				outputFiles[fileNum] = new PcapFileWriterDevice(fileName.c_str(), rawPacket.getLinkLayerType());
+			}
 
 			// open the writer
 			if (!outputFiles[fileNum]->open())
@@ -370,14 +408,20 @@ int main(int argc, char* argv[])
 		// then closed. In this case we need to re-open the PcapFileWriterDevice in append mode
 		else if (outputFiles[fileNum] == NULL)
 		{
-			// prepare the file name in the format of:
-			// /requested-path/original-file-name-[file-number].pcap
-		    std::ostringstream sstream;
-		    sstream << std::setw(4) << std::setfill( '0' ) << fileNum;
-			std::string fileName = outputPcapFileName.c_str() + sstream.str() + ".pcap";
+			// get file name from the splitter and add the .pcap extension
+			std::string fileName = splitter->getFileName(parsedPacket, outputPcapFileName, fileNum) + outputFileExtenison;
 
-			// re-create the PcapFileWriterDevice
-			outputFiles[fileNum] = new PcapFileWriterDevice(fileName.c_str());
+			// re-create the IFileWriterDevice object
+			if (isReaderPcapng)
+			{
+				// if reader is pcapng, create a pcapng writer
+				outputFiles[fileNum] = new PcapNgFileWriterDevice(fileName.c_str());
+			}
+			else
+			{
+				// if reader is pcap, create a pcap writer
+				outputFiles[fileNum] = new PcapFileWriterDevice(fileName.c_str(), rawPacket.getLinkLayerType());
+			}
 
 			// open the writer in __append__ mode
 			if (!outputFiles[fileNum]->open(true))
@@ -408,10 +452,13 @@ int main(int argc, char* argv[])
 	std::cout << "Finished. Read and written " << packetCountSoFar << " packets to " << numOfFiles << " files" << std::endl;
 
 	// close the reader file
-	reader.close();
+	reader->close();
+
+	// free reader memory
+	delete reader;
 
 	// close the writer files which are still open
-	for(std::map<int, PcapFileWriterDevice*>::iterator it = outputFiles.begin(); it != outputFiles.end(); ++it)
+	for(std::map<int, IFileWriterDevice*>::iterator it = outputFiles.begin(); it != outputFiles.end(); ++it)
 	{
 		if (it->second != NULL)
 			it->second->close();

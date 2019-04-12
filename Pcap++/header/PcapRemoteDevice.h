@@ -1,10 +1,10 @@
 #ifndef PCAPPP_PCAP_REMOTE_DEVICE
 #define PCAPPP_PCAP_REMOTE_DEVICE
 
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 
 #include <vector>
-#include <PcapLiveDevice.h>
+#include "PcapLiveDevice.h"
 
 
 /// @file

@@ -240,7 +240,7 @@ static void __extract_ipv4_address(const uint8_t *payload, flow_address_t *addre
 	}
 }
 
-static PCAPNG_ATTRIBUTE_UNTESTED void __extract_ipv6_address(const uint8_t *payload, flow_address_t *address)
+static void __extract_ipv6_address(const uint8_t *payload, flow_address_t *address)
 {
 	const uint8_t *address_offest = payload + 8;
 	int i;
@@ -466,7 +466,7 @@ int light_ip_flow(light_pcapng *sectionp, light_pcapng **flows, size_t *flow_cou
 iterate:
 		progress++;
 		if (progress % 10000 == 0) {
-			printf("Flow extraction progress: %.2lf [%zu / %zu]\n", (double)progress / limit * 100.0, progress, limit);
+			printf("Flow extraction progress: %.2lf [%d / %d]\n", (double)progress / limit * 100.0, (int)progress, (int)limit);
 		}
 		current_block = current_block->next_block;
 	}

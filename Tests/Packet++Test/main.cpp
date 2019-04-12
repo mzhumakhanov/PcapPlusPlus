@@ -1,4 +1,5 @@
 #include <Logger.h>
+#include <PcapPlusPlusVersion.h>
 #include <Packet.h>
 #include <EthLayer.h>
 #include <SllLayer.h>
@@ -19,6 +20,11 @@
 #include <DhcpLayer.h>
 #include <NullLoopbackLayer.h>
 #include <IgmpLayer.h>
+#include <VxlanLayer.h>
+#include <SipLayer.h>
+#include <SdpLayer.h>
+#include <PacketTrailerLayer.h>
+#include <RadiusLayer.h>
 #include <IpAddress.h>
 #include <fstream>
 #include <stdlib.h>
@@ -127,7 +133,7 @@ void printBufferDifferences(const uint8_t* buffer1, size_t buffer1Len, const uin
 }
 
 // For debug purpose only
-//void createPcapFile(Packet& packet, std::string fileName)
+//void savePacketToPcap(Packet& packet, std::string fileName)
 //{
 //    pcap_t *pcap;
 //    pcap = pcap_open_dead(1, 65565);
@@ -180,6 +186,35 @@ PACKETPP_TEST(EthPacketCreation) {
 
 	uint8_t expectedBuffer[18] = { 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0x08, 0x00, 0x01, 0x02, 0x03, 0x04 };
 	PACKETPP_ASSERT(memcmp(rawPacket->getRawData(), expectedBuffer, 18) == 0, "Raw packet data is different than expected");
+	PACKETPP_TEST_PASSED;
+}
+
+PACKETPP_TEST(EthPacketPointerCreation) {
+	MacAddress srcMac("aa:aa:aa:aa:aa:aa");
+	MacAddress dstMac("bb:bb:bb:bb:bb:bb");
+	EthLayer *ethLayer = new EthLayer(srcMac, dstMac, PCPP_ETHERTYPE_IP);
+
+	uint8_t payload[] = { 0x01, 0x02, 0x03, 0x04 };
+	PayloadLayer *payloadLayer = new PayloadLayer(payload, 4, true);
+
+	Packet *ethPacket = new Packet(1);
+	PACKETPP_ASSERT(ethPacket->addLayer(ethLayer, true), "Adding ethernet layer failed");
+	PACKETPP_ASSERT(ethPacket->addLayer(payloadLayer, true), "Adding payload layer failed");
+
+	PACKETPP_ASSERT(ethPacket->isPacketOfType(Ethernet), "Packet is not of type Ethernet");
+	PACKETPP_ASSERT(ethPacket->getLayerOfType<EthLayer>() != NULL, "Ethernet layer doesn't exist");
+	PACKETPP_ASSERT(ethPacket->getLayerOfType<EthLayer>() == ethLayer, "Ethernet layer doesn't equal to inserted layer");
+	PACKETPP_ASSERT(ethPacket->getLayerOfType<EthLayer>()->getDestMac() == dstMac, "Packet dest mac isn't equal to intserted dest mac");
+	PACKETPP_ASSERT(ethPacket->getLayerOfType<EthLayer>()->getSourceMac() == srcMac, "Packet src mac isn't equal to intserted src mac");
+	PACKETPP_ASSERT(ethPacket->getLayerOfType<EthLayer>()->getEthHeader()->etherType == ntohs(PCPP_ETHERTYPE_IP), "Packet ether type isn't equal to PCPP_ETHERTYPE_IP");
+
+	RawPacket* rawPacket = ethPacket->getRawPacket();
+	PACKETPP_ASSERT(rawPacket != NULL, "Raw packet is NULL");
+	PACKETPP_ASSERT(rawPacket->getRawDataLen() == 18, "Raw packet length expected to be 18 but it's %d", rawPacket->getRawDataLen());
+
+	uint8_t expectedBuffer[18] = { 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xbb, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0x08, 0x00, 0x01, 0x02, 0x03, 0x04 };
+	PACKETPP_ASSERT(memcmp(rawPacket->getRawData(), expectedBuffer, 18) == 0, "Raw packet data is different than expected");
+	delete(ethPacket);
 	PACKETPP_TEST_PASSED;
 }
 
@@ -252,6 +287,20 @@ PACKETPP_TEST(ArpPacketCreation)
 
 PACKETPP_TEST(VlanParseAndCreation)
 {
+	for(int vid = 0; vid < 4096 * 2; vid++)
+	{
+		for(int prio = 0; prio < 8 * 2; prio ++)
+		{
+			for(int cfi = 0; cfi < 2 * 2; cfi++) //true or false
+			{
+				VlanLayer testVlanLayer(vid, cfi, prio, PCPP_ETHERTYPE_VLAN);
+				PACKETPP_ASSERT(testVlanLayer.getVlanID() == (vid & 0xFFF), "vlan VID %d != %d; (c %d p %d)(%04X)", testVlanLayer.getVlanID(), vid, cfi, prio, testVlanLayer.getVlanHeader()->vlan);
+				PACKETPP_ASSERT(testVlanLayer.getPriority() == (prio & 7), "vlan PRIO %d != %d; (v %d c %d)(%04X)", testVlanLayer.getPriority(), prio, vid, cfi, testVlanLayer.getVlanHeader()->vlan);
+				PACKETPP_ASSERT(testVlanLayer.getCFI() == (cfi != 0), "vlan CFI %d != %d; (v %d p %d)(%04X)", testVlanLayer.getCFI(), cfi, vid, prio, testVlanLayer.getVlanHeader()->vlan);
+			}
+		}
+	}
+
 	int bufferLength = 0;
 	uint8_t* buffer = readFileIntoBuffer("PacketExamples/ArpRequestWithVlan.dat", bufferLength);
 	PACKETPP_ASSERT(!(buffer == NULL), "cannot read file");
@@ -264,7 +313,7 @@ PACKETPP_TEST(VlanParseAndCreation)
 	VlanLayer* pFirstVlanLayer = NULL;
 	VlanLayer* pSecondVlanLayer = NULL;
 	PACKETPP_ASSERT((pFirstVlanLayer = arpWithVlan.getLayerOfType<VlanLayer>()) != NULL, "Couldn't get first vlan layer from packet");
-	PACKETPP_ASSERT(pFirstVlanLayer->getVlanID() == 100, "first vlan ID != 100, it's 0x%2X", pFirstVlanLayer->getVlanID());
+	PACKETPP_ASSERT(pFirstVlanLayer->getVlanID() == 666, "first vlan ID != 666, it's 0x%04X", pFirstVlanLayer->getVlanID());
 	PACKETPP_ASSERT(pFirstVlanLayer->getCFI() == 1, "first vlan CFI != 1");
 	PACKETPP_ASSERT(pFirstVlanLayer->getPriority() == 5, "first vlan priority != 5");
 	PACKETPP_ASSERT((pSecondVlanLayer = arpWithVlan.getNextLayerOfType<VlanLayer>(pFirstVlanLayer)) != NULL, "Couldn't get second vlan layer from packet");
@@ -276,7 +325,7 @@ PACKETPP_TEST(VlanParseAndCreation)
 	MacAddress macSrc("ca:03:0d:b4:00:1c");
 	MacAddress macDest("ff:ff:ff:ff:ff:ff");
 	EthLayer ethLayer(macSrc, macDest, PCPP_ETHERTYPE_VLAN);
-	VlanLayer firstVlanLayer(100, 1, 5, PCPP_ETHERTYPE_VLAN);
+	VlanLayer firstVlanLayer(666, 1, 5, PCPP_ETHERTYPE_VLAN);
 	VlanLayer secondVlanLayer(200, 0, 2, PCPP_ETHERTYPE_ARP);
 	ArpLayer arpLayer(ARP_REQUEST, macSrc, MacAddress("00:00:00:00:00:00"), IPv4Address(string("192.168.2.200")), IPv4Address(string("192.168.2.254")));
 	PACKETPP_ASSERT(arpWithVlanNew.addLayer(&ethLayer), "Couldn't add eth layer");
@@ -323,7 +372,7 @@ PACKETPP_TEST(Ipv4PacketCreation)
 
 	ip4Packet.computeCalculateFields();
 
-	PACKETPP_ASSERT(ip4Packet.getLayerOfType<EthLayer>()->getDataLen() == 44, "Eth Layer data len != 44, it's %d", ip4Packet.getLayerOfType<EthLayer>()->getDataLen());
+	PACKETPP_ASSERT(ip4Packet.getLayerOfType<EthLayer>()->getDataLen() == 44, "Eth Layer data len != 44, it's %d", (int)ip4Packet.getLayerOfType<EthLayer>()->getDataLen());
 	PACKETPP_ASSERT(ip4Packet.getLayerOfType<IPv4Layer>() != NULL, "Packet doesn't contain IPv4 layer");
 	iphdr* ipHeader = ip4Layer.getIPv4Header();
 	PACKETPP_ASSERT(ip4Layer.getSrcIpAddress() == ipSrc, "IPv4 Layer src IP isn't equal to inserted src IP");
@@ -341,7 +390,7 @@ PACKETPP_TEST(Ipv4PacketParsing)
 {
 	int bufferLength = 0;
 	uint8_t* buffer = readFileIntoBuffer("PacketExamples/IcmpPacket.dat", bufferLength);
-	PACKETPP_ASSERT(!(buffer == NULL), "cannot read file");
+	PACKETPP_ASSERT(!(buffer == NULL), "cannot read file IcmpPacket.dat");
 
 	timeval time;
 	gettimeofday(&time, NULL);
@@ -363,9 +412,26 @@ PACKETPP_TEST(Ipv4PacketParsing)
 	PACKETPP_ASSERT(ipv4Layer->getIPv4Header()->ipVersion == 4, "IP version isn't 4. Version is: %d", ipv4Layer->getIPv4Header()->ipVersion);
 	PACKETPP_ASSERT(ipv4Layer->getIPv4Header()->ipSrc == ip4addr1.toInt(), "incorrect source address");
 	PACKETPP_ASSERT(ipv4Layer->getIPv4Header()->ipDst == ip4addr2.toInt(), "incorrect dest address");
-	PACKETPP_ASSERT(ipv4Layer->getFirstOptionData() == NULL, "Managed to get the first IPv4 option although packet doesn't contain any options");
-	PACKETPP_ASSERT(ipv4Layer->getOptionData(IPV4OPT_CommercialSecurity) == NULL, "Managed to get an IPv4 option by type although packet doesn't contain any options");
-	PACKETPP_ASSERT(ipv4Layer->getOptionsCount() == 0, "IPv4 option count isn't 0");
+	PACKETPP_ASSERT(ipv4Layer->getFirstOption().isNull() == true, "Managed to get the first IPv4 option although packet doesn't contain any options");
+	PACKETPP_ASSERT(ipv4Layer->getOption(IPV4OPT_CommercialSecurity).isNull() == true, "Managed to get an IPv4 option by type although packet doesn't contain any options");
+	PACKETPP_ASSERT(ipv4Layer->getOptionCount() == 0, "IPv4 option count isn't 0");
+
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/IPv4-TSO.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file IPv4-TSO.dat");
+
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true);
+
+	Packet ip4TSO(&rawPacket2);
+
+	ipv4Layer = ip4TSO.getLayerOfType<IPv4Layer>();
+	PACKETPP_ASSERT(ipv4Layer != NULL, "IPv4 TSO: cannot get IPv4 layer");
+	PACKETPP_ASSERT(ipv4Layer->getHeaderLen() == 20, "IPv4 TSO: header len is not 20");
+	PACKETPP_ASSERT(ipv4Layer->getIPv4Header()->totalLength == 0 ,"IPv4 TSO: total length is not 0, it's %d", ipv4Layer->getIPv4Header()->totalLength);
+	PACKETPP_ASSERT(ipv4Layer->getDataLen() == 60, "IPv4 TSO: data len is not 60");
+	PACKETPP_ASSERT(ipv4Layer->getNextLayer() != NULL, "IPv4 TSO: next layer is NULL");
+	PACKETPP_ASSERT(ipv4Layer->getNextLayer()->getProtocol() == ICMP, "IPv4 TSO: next layer type isn't ICMP");
 
 	PACKETPP_TEST_PASSED;
 }
@@ -401,7 +467,7 @@ PACKETPP_TEST(Ipv4FragmentationTest)
 	PACKETPP_ASSERT(ipLayer->isLastFragment() == false, "Frag1 is mistakenly a last fragment");
 	PACKETPP_ASSERT(ipLayer->getFragmentOffset() == 0, "Frag1 fragment offset != 0");
 	PACKETPP_ASSERT((ipLayer->getFragmentFlags() & PCPP_IP_MORE_FRAGMENTS) != 0, "Frag1 mistakenly doesn't contain the 'more fragments' flag");
-	PACKETPP_ASSERT(ipLayer->getNextLayer() != NULL && ipLayer->getNextLayer()->getProtocol() == pcpp::Unknown, "Frag1 next protocol is not generic payload");
+	PACKETPP_ASSERT(ipLayer->getNextLayer() != NULL && ipLayer->getNextLayer()->getProtocol() == pcpp::GenericPayload, "Frag1 next protocol is not generic payload");
 
 
 	ipLayer = frag2.getLayerOfType<IPv4Layer>();
@@ -411,7 +477,7 @@ PACKETPP_TEST(Ipv4FragmentationTest)
 	PACKETPP_ASSERT(ipLayer->isLastFragment() == false, "Frag2 is mistakenly a last fragment");
 	PACKETPP_ASSERT(ipLayer->getFragmentOffset() == 1480, "Frag2 fragment offset != 1480");
 	PACKETPP_ASSERT((ipLayer->getFragmentFlags() & PCPP_IP_MORE_FRAGMENTS) != 0, "Frag2 mistakenly doesn't contain the 'more fragments' flag");
-	PACKETPP_ASSERT(ipLayer->getNextLayer() != NULL && ipLayer->getNextLayer()->getProtocol() == pcpp::Unknown, "Frag2 next protocol is not generic payload");
+	PACKETPP_ASSERT(ipLayer->getNextLayer() != NULL && ipLayer->getNextLayer()->getProtocol() == pcpp::GenericPayload, "Frag2 next protocol is not generic payload");
 
 	ipLayer = frag3.getLayerOfType<IPv4Layer>();
 	PACKETPP_ASSERT(ipLayer != NULL, "Coudln't find Frag3 IPv4 layer");
@@ -420,7 +486,7 @@ PACKETPP_TEST(Ipv4FragmentationTest)
 	PACKETPP_ASSERT(ipLayer->isLastFragment() == true, "Frag3 is mistakenly not a last fragment");
 	PACKETPP_ASSERT(ipLayer->getFragmentOffset() == 2960, "Frag3 fragment offset != 2960");
 	PACKETPP_ASSERT(ipLayer->getFragmentFlags() == 0, "Frag3 mistakenly contains flags, 0x%X", ipLayer->getFragmentFlags());
-	PACKETPP_ASSERT(ipLayer->getNextLayer() != NULL && ipLayer->getNextLayer()->getProtocol() == pcpp::Unknown, "Frag3 next protocol is not generic payload");
+	PACKETPP_ASSERT(ipLayer->getNextLayer() != NULL && ipLayer->getNextLayer()->getProtocol() == pcpp::GenericPayload, "Frag3 next protocol is not generic payload");
 
 	PACKETPP_TEST_PASSED;
 }
@@ -477,87 +543,85 @@ PACKETPP_TEST(Ipv4OptionsParsingTest)
 	IPv4Layer* ipLayer = ipOpt1.getLayerOfType<IPv4Layer>();
 	PACKETPP_ASSERT(ipLayer != NULL, "Coudln't find ipOpt1 IPv4 layer");
 	PACKETPP_ASSERT(ipLayer->getHeaderLen() == 44, "ipOpt1 header length isn't 44 Bytes");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 3, "ipOpt1 option count isn't 3");
-	IPv4OptionData* opt = ipLayer->getFirstOptionData();
-	PACKETPP_ASSERT(opt != NULL, "ipOpt1 first option is NULL");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_CommercialSecurity, "ipOpt1 first option isn't commercial-security");
-	PACKETPP_ASSERT(opt->getDataSize() == 20, "ipOpt1 first option data size isn't 20");
-	PACKETPP_ASSERT(opt->getTotalSize() == 22, "ipOpt1 first option total size isn't 22");
-	PACKETPP_ASSERT(opt->getValueAs<uint32_t>() == htonl(2), "ipOpt1 first int value isn't 2");
-	PACKETPP_ASSERT(opt->getValueAs<uint8_t>(4) == 2, "ipOpt1 value in offset 4 isn't 2");
-	opt = ipLayer->getNextOptionData(opt);
-	PACKETPP_ASSERT(opt != NULL, "ipOpt1 second option is NULL");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_EndOfOtionsList, "ipOpt1 second option isn't end-of-option-list");
-	PACKETPP_ASSERT(opt->getType() == 0, "ipOpt1 second option isn't end-of-option-list");
-	opt = ipLayer->getNextOptionData(opt);
-	PACKETPP_ASSERT(opt != NULL, "ipOpt1 third option is NULL");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_EndOfOtionsList, "ipOpt1 second option isn't end-of-option-list");
-	PACKETPP_ASSERT(opt->getType() == 0, "ipOpt1 second option isn't end-of-option-list");
-	opt = ipLayer->getNextOptionData(opt);
-	PACKETPP_ASSERT(opt == NULL, "ipOpt1 fourth option isn't NULL");
-	opt = ipLayer->getOptionData(IPV4OPT_EndOfOtionsList);
-	PACKETPP_ASSERT(opt != NULL, "ipOpt1 couldn't retrieve option by type");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_EndOfOtionsList, "ipOpt1 type if retrieved option isn't end-of-option-list");
-	PACKETPP_ASSERT(ipLayer->getOptionData(IPV4OPT_Timestamp) == NULL, "ipOpt1 Managed to reprieve timestamp option although doens't exist in the packet");
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 3, "ipOpt1 option count isn't 3");
+	IPv4Option opt = ipLayer->getFirstOption();
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt1 first option is NULL");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_CommercialSecurity, "ipOpt1 first option isn't commercial-security");
+	PACKETPP_ASSERT(opt.getDataSize() == 20, "ipOpt1 first option data size isn't 20");
+	PACKETPP_ASSERT(opt.getTotalSize() == 22, "ipOpt1 first option total size isn't 22");
+	PACKETPP_ASSERT(opt.getValueAs<uint32_t>() == htonl(2), "ipOpt1 first int value isn't 2");
+	PACKETPP_ASSERT(opt.getValueAs<uint8_t>(4) == 2, "ipOpt1 value in offset 4 isn't 2");
+	opt = ipLayer->getNextOption(opt);
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt1 second option is NULL");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_EndOfOtionsList, "ipOpt1 second option isn't end-of-option-list");
+	opt = ipLayer->getNextOption(opt);
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt1 third option is NULL");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_EndOfOtionsList, "ipOpt1 second option isn't end-of-option-list");
+	opt = ipLayer->getNextOption(opt);
+	PACKETPP_ASSERT(opt.isNull() == true, "ipOpt1 fourth option isn't NULL");
+	opt = ipLayer->getOption(IPV4OPT_EndOfOtionsList);
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt1 couldn't retrieve option by type");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_EndOfOtionsList, "ipOpt1 type if retrieved option isn't end-of-option-list");
+	PACKETPP_ASSERT(ipLayer->getOption(IPV4OPT_Timestamp).isNull() == true, "ipOpt1 Managed to reprieve timestamp option although doens't exist in the packet");
 
 	ipLayer = ipOpt2.getLayerOfType<IPv4Layer>();
 	PACKETPP_ASSERT(ipLayer != NULL, "Coudln't find ipOpt2 IPv4 layer");
 	PACKETPP_ASSERT(ipLayer->getHeaderLen() == 60, "ipOpt2 header length isn't 60 Bytes");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 1, "ipOpt2 option count isn't 1");
-	opt = ipLayer->getFirstOptionData();
-	PACKETPP_ASSERT(opt != NULL, "ipOpt2 first option is NULL");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_Timestamp, "ipOpt2 first option isn't timestamp");
-	PACKETPP_ASSERT(opt->getDataSize() == 38, "ipOpt2 first option data size isn't 38");
-	PACKETPP_ASSERT(opt->getTotalSize() == 40, "ipOpt2 first option total size isn't 40");
-	IPv4TimestampOptionValue tsValue = opt->getTimestampOptionValue();
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 1, "ipOpt2 option count isn't 1");
+	opt = ipLayer->getFirstOption();
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt2 first option is NULL");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_Timestamp, "ipOpt2 first option isn't timestamp");
+	PACKETPP_ASSERT(opt.getDataSize() == 38, "ipOpt2 first option data size isn't 38");
+	PACKETPP_ASSERT(opt.getTotalSize() == 40, "ipOpt2 first option total size isn't 40");
+	IPv4TimestampOptionValue tsValue = opt.getTimestampOptionValue();
 	PACKETPP_ASSERT(tsValue.type == IPv4TimestampOptionValue::TimestampOnly, "ipOpt2 ts type isn't TimestampOnly");
 	PACKETPP_ASSERT(tsValue.timestamps.size() == 1, "ipOpt2 ts value contains more than 1 ts");
 	PACKETPP_ASSERT(tsValue.ipAddresses.size() == 0, "ipOpt2 ts value contains more than 0 IPs");
 	PACKETPP_ASSERT(tsValue.timestamps.at(0) == htonl(82524601), "ipOpt2 ts value first ts isn't 82524601");
-	opt = ipLayer->getNextOptionData(opt);
-	PACKETPP_ASSERT(opt == NULL, "ipOpt2 second option isn't NULL");
+	opt = ipLayer->getNextOption(opt);
+	PACKETPP_ASSERT(opt.isNull() == true, "ipOpt2 second option isn't NULL");
 
 	ipLayer = ipOpt3.getLayerOfType<IPv4Layer>();
 	PACKETPP_ASSERT(ipLayer != NULL, "Coudln't find ipOpt3 IPv4 layer");
 	PACKETPP_ASSERT(ipLayer->getHeaderLen() == 24, "ipOpt3 header length isn't 24 Bytes");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 1, "ipOpt3 option count isn't 1");
-	opt = ipLayer->getFirstOptionData();
-	PACKETPP_ASSERT(opt != NULL, "ipOpt3 first option is NULL");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_RouterAlert, "ipOpt3 first option isn't router-alert");
-	PACKETPP_ASSERT(opt->getDataSize() == 2, "ipOpt3 first option data size isn't 2");
-	PACKETPP_ASSERT(opt->getTotalSize() == 4, "ipOpt3 first option total size isn't 4");
-	PACKETPP_ASSERT(opt->getValueAs<uint16_t>() == 0, "ipOpt3 value isn't 0");
-	opt = ipLayer->getNextOptionData(opt);
-	PACKETPP_ASSERT(opt == NULL, "ipOpt3 second option isn't NULL");
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 1, "ipOpt3 option count isn't 1");
+	opt = ipLayer->getFirstOption();
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt3 first option is NULL");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_RouterAlert, "ipOpt3 first option isn't router-alert");
+	PACKETPP_ASSERT(opt.getDataSize() == 2, "ipOpt3 first option data size isn't 2");
+	PACKETPP_ASSERT(opt.getTotalSize() == 4, "ipOpt3 first option total size isn't 4");
+	PACKETPP_ASSERT(opt.getValueAs<uint16_t>() == 0, "ipOpt3 value isn't 0");
+	opt = ipLayer->getNextOption(opt);
+	PACKETPP_ASSERT(opt.isNull() == true, "ipOpt3 second option isn't NULL");
 
 	ipLayer = ipOpt4.getLayerOfType<IPv4Layer>();
 	PACKETPP_ASSERT(ipLayer != NULL, "Coudln't find ipOpt4 IPv4 layer");
 	PACKETPP_ASSERT(ipLayer->getHeaderLen() == 60, "ipOpt4 header length isn't 60 Bytes");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 2, "ipOpt4 option count isn't 2");
-	opt = ipLayer->getFirstOptionData();
-	PACKETPP_ASSERT(opt != NULL, "ipOpt4 first option is NULL");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_RecordRoute, "ipOpt4 first option isn't record-route");
-	PACKETPP_ASSERT(opt->getDataSize() == 37, "ipOpt4 first option data size isn't 37");
-	PACKETPP_ASSERT(opt->getTotalSize() == 39, "ipOpt4 first option total size isn't 39");
-	std::vector<IPv4Address> ipAddrs = opt->getValueAsIpList();
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 2, "ipOpt4 option count isn't 2");
+	opt = ipLayer->getFirstOption();
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt4 first option is NULL");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_RecordRoute, "ipOpt4 first option isn't record-route");
+	PACKETPP_ASSERT(opt.getDataSize() == 37, "ipOpt4 first option data size isn't 37");
+	PACKETPP_ASSERT(opt.getTotalSize() == 39, "ipOpt4 first option total size isn't 39");
+	std::vector<IPv4Address> ipAddrs = opt.getValueAsIpList();
 	PACKETPP_ASSERT(ipAddrs.size() == 3, "ipOpt4 number of IP addresses isn't 3");
 	PACKETPP_ASSERT(ipAddrs.at(0) == IPv4Address(std::string("1.2.3.4")), "ipOpt4 first IP addr isn't 1.2.3.4");
 	PACKETPP_ASSERT(ipAddrs.at(1) == IPv4Address(std::string("10.0.0.138")), "ipOpt4 second IP addr isn't 10.0.0.138");
 	PACKETPP_ASSERT(ipAddrs.at(2) == IPv4Address(std::string("10.0.0.138")), "ipOpt4 third IP addr isn't 10.0.0.138");
-	IPv4OptionData* opt2 = ipLayer->getOptionData(IPV4OPT_RecordRoute);
-	PACKETPP_ASSERT(opt2 != NULL, "ipOpt4 couldn't retrieve option by type");
+	IPv4Option opt2 = ipLayer->getOption(IPV4OPT_RecordRoute);
+	PACKETPP_ASSERT(opt2.isNull() == false, "ipOpt4 couldn't retrieve option by type");
 	PACKETPP_ASSERT(opt2 == opt, "ipOpt4 option retrieved by type and by getFirstOptionData aren't the same pointer");
 
 	ipLayer = ipOpt5.getLayerOfType<IPv4Layer>();
 	PACKETPP_ASSERT(ipLayer != NULL, "Coudln't find ipOpt5 IPv4 layer");
 	PACKETPP_ASSERT(ipLayer->getHeaderLen() == 56, "ipOpt5 header length isn't 56 Bytes");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 1, "ipOpt5 option count isn't 1");
-	opt = ipLayer->getFirstOptionData();
-	PACKETPP_ASSERT(opt != NULL, "ipOpt5 first option is NULL");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_Timestamp, "ipOpt5 first option isn't timestamp");
-	PACKETPP_ASSERT(opt->getDataSize() == 34, "ipOpt5 first option data size isn't 34");
-	PACKETPP_ASSERT(opt->getTotalSize() == 36, "ipOpt5 first option total size isn't 36");
-	tsValue = opt->getTimestampOptionValue();
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 1, "ipOpt5 option count isn't 1");
+	opt = ipLayer->getFirstOption();
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt5 first option is NULL");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_Timestamp, "ipOpt5 first option isn't timestamp");
+	PACKETPP_ASSERT(opt.getDataSize() == 34, "ipOpt5 first option data size isn't 34");
+	PACKETPP_ASSERT(opt.getTotalSize() == 36, "ipOpt5 first option total size isn't 36");
+	tsValue = opt.getTimestampOptionValue();
 	PACKETPP_ASSERT(tsValue.type == IPv4TimestampOptionValue::TimestampAndIP, "ipOpt5 ts type isn't TimestampAndIP");
 	PACKETPP_ASSERT(tsValue.timestamps.size() == 3, "ipOpt5 ts value doesn't contain 3 ts");
 	PACKETPP_ASSERT(tsValue.ipAddresses.size() == 3, "ipOpt5 ts value deosn't contain 3 IPs");
@@ -565,49 +629,49 @@ PACKETPP_TEST(Ipv4OptionsParsingTest)
 	PACKETPP_ASSERT(tsValue.timestamps.at(2) == htonl(77233718), "ipOpt5 ts value third ts isn't 77233718");
 	PACKETPP_ASSERT(tsValue.ipAddresses.at(0) == IPv4Address(std::string("10.0.0.6")), "ipOpt5 ts value first IP isn't 10.0.0.6");
 	PACKETPP_ASSERT(tsValue.ipAddresses.at(1) == IPv4Address(std::string("10.0.0.138")), "ipOpt5 ts value second IP isn't 10.0.0.138");
-	opt = ipLayer->getNextOptionData(opt);
-	PACKETPP_ASSERT(opt == NULL, "ipOpt5 second option isn't NULL");
+	opt = ipLayer->getNextOption(opt);
+	PACKETPP_ASSERT(opt.isNull() == true, "ipOpt5 second option isn't NULL");
 
 	ipLayer = ipOpt6.getLayerOfType<IPv4Layer>();
 	PACKETPP_ASSERT(ipLayer != NULL, "Coudln't find ipOpt6 IPv4 layer");
 	PACKETPP_ASSERT(ipLayer->getHeaderLen() == 28, "ipOpt6 header length isn't 28 Bytes");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 2, "ipOpt6 option count isn't 2");
-	opt = ipLayer->getFirstOptionData();
-	PACKETPP_ASSERT(opt != NULL, "ipOpt6 first option is NULL");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_NOP, "ipOpt6 first option isn't nop");
-	PACKETPP_ASSERT(opt->getDataSize() == 0, "ipOpt6 first option data size isn't 0");
-	PACKETPP_ASSERT(opt->getTotalSize() == 1, "ipOpt6 first option total size isn't 1");
-	opt = ipLayer->getNextOptionData(opt);
-	PACKETPP_ASSERT(opt != NULL, "ipOpt6 second option is NULL");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_StrictSourceRoute, "ipOpt6 second option isn't strict-source-route");
-	PACKETPP_ASSERT(opt->getDataSize() == 5, "ipOpt6 second option data size isn't 5");
-	PACKETPP_ASSERT(opt->getTotalSize() == 7, "ipOpt6 second option total size isn't 7");
-	ipAddrs = opt->getValueAsIpList();
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 2, "ipOpt6 option count isn't 2");
+	opt = ipLayer->getFirstOption();
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt6 first option is NULL");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_NOP, "ipOpt6 first option isn't nop");
+	PACKETPP_ASSERT(opt.getDataSize() == 0, "ipOpt6 first option data size isn't 0");
+	PACKETPP_ASSERT(opt.getTotalSize() == 1, "ipOpt6 first option total size isn't 1");
+	opt = ipLayer->getNextOption(opt);
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt6 second option is NULL");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_StrictSourceRoute, "ipOpt6 second option isn't strict-source-route");
+	PACKETPP_ASSERT(opt.getDataSize() == 5, "ipOpt6 second option data size isn't 5");
+	PACKETPP_ASSERT(opt.getTotalSize() == 7, "ipOpt6 second option total size isn't 7");
+	ipAddrs = opt.getValueAsIpList();
 	PACKETPP_ASSERT(ipAddrs.size() == 0, "ipOpt6 number of IP addresses isn't 0");
-	opt = ipLayer->getNextOptionData(opt);
-	PACKETPP_ASSERT(opt == NULL, "ipOpt6 third option isn't NULL");
+	opt = ipLayer->getNextOption(opt);
+	PACKETPP_ASSERT(opt.isNull() == true, "ipOpt6 third option isn't NULL");
 
 	ipLayer = ipOpt7.getLayerOfType<IPv4Layer>();
 	PACKETPP_ASSERT(ipLayer != NULL, "Coudln't find ipOpt7 IPv4 layer");
 	PACKETPP_ASSERT(ipLayer->getHeaderLen() == 28, "ipOpt7 header length isn't 28 Bytes");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 2, "ipOpt7 option count isn't 2");
-	opt = ipLayer->getFirstOptionData();
-	PACKETPP_ASSERT(opt != NULL, "ipOpt7 first option is NULL");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_NOP, "ipOpt7 first option isn't nop");
-	PACKETPP_ASSERT(opt->getDataSize() == 0, "ipOpt7 first option data size isn't 0");
-	PACKETPP_ASSERT(opt->getTotalSize() == 1, "ipOpt7 first option total size isn't 1");
-	opt = ipLayer->getNextOptionData(opt);
-	PACKETPP_ASSERT(opt != NULL, "ipOpt7 second option is NULL");
-	PACKETPP_ASSERT(opt->getType() == IPV4OPT_LooseSourceRoute, "ipOpt7 second option isn't loose-source-route");
-	PACKETPP_ASSERT(opt->getDataSize() == 5, "ipOpt7 second option data size isn't 5");
-	PACKETPP_ASSERT(opt->getTotalSize() == 7, "ipOpt7 second option total size isn't 7");
-	ipAddrs = opt->getValueAsIpList();
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 2, "ipOpt7 option count isn't 2");
+	opt = ipLayer->getFirstOption();
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt7 first option is NULL");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_NOP, "ipOpt7 first option isn't nop");
+	PACKETPP_ASSERT(opt.getDataSize() == 0, "ipOpt7 first option data size isn't 0");
+	PACKETPP_ASSERT(opt.getTotalSize() == 1, "ipOpt7 first option total size isn't 1");
+	opt = ipLayer->getNextOption(opt);
+	PACKETPP_ASSERT(opt.isNull() == false, "ipOpt7 second option is NULL");
+	PACKETPP_ASSERT(opt.getIPv4OptionType() == IPV4OPT_LooseSourceRoute, "ipOpt7 second option isn't loose-source-route");
+	PACKETPP_ASSERT(opt.getDataSize() == 5, "ipOpt7 second option data size isn't 5");
+	PACKETPP_ASSERT(opt.getTotalSize() == 7, "ipOpt7 second option total size isn't 7");
+	ipAddrs = opt.getValueAsIpList();
 	PACKETPP_ASSERT(ipAddrs.size() == 0, "ipOpt7 number of IP addresses isn't 0");
-	opt2 = ipLayer->getOptionData(IPV4OPT_LooseSourceRoute);
-	PACKETPP_ASSERT(opt2 != NULL, "ipOpt7 couldn't retrieve option by type");
+	opt2 = ipLayer->getOption(IPV4OPT_LooseSourceRoute);
+	PACKETPP_ASSERT(opt2.isNull() == false, "ipOpt7 couldn't retrieve option by type");
 	PACKETPP_ASSERT(opt2 == opt, "ipOpt7 option retrieved by type and by getNextOptionData aren't the same pointer");
-	opt = ipLayer->getNextOptionData(opt);
-	PACKETPP_ASSERT(opt == NULL, "ipOpt7 third option isn't NULL");
+	opt = ipLayer->getNextOption(opt);
+	PACKETPP_ASSERT(opt.isNull() == true, "ipOpt7 third option isn't NULL");
 
 	PACKETPP_TEST_PASSED;
 }
@@ -684,9 +748,9 @@ PACKETPP_TEST(Ipv4OptionsEditTest)
 
 	IPv4Layer* ipLayer = ipOpt1.getLayerOfType<IPv4Layer>();
 	uint8_t commSecOptionData[] = { 0x00, 0x00, 0x00, 0x02, 0x02, 0x10, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0xef };
-	PACKETPP_ASSERT(ipLayer->addOption(IPV4OPT_CommercialSecurity, 20, commSecOptionData) != NULL, "Cannot add commercial security option to packet 1");
-	PACKETPP_ASSERT(ipLayer->addOption(IPV4OPT_EndOfOtionsList, 0, NULL) != NULL, "Cannot add end-of-opt-list option to packet 1");
-	PACKETPP_ASSERT(ipLayer->addOptionAfter(IPV4OPT_EndOfOtionsList, 0, NULL, IPV4OPT_CommercialSecurity) != NULL, "Cannot add 2nd end-of-opt-list option to packet 1");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(IPV4OPT_CommercialSecurity, commSecOptionData, 20)).isNull() == false, "Cannot add commercial security option to packet 1");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(IPV4OPT_EndOfOtionsList, NULL, 0)).isNull() == false, "Cannot add end-of-opt-list option to packet 1");
+	PACKETPP_ASSERT(ipLayer->addOptionAfter(IPv4OptionBuilder(IPV4OPT_EndOfOtionsList, NULL, 0), IPV4OPT_CommercialSecurity).isNull() == false, "Cannot add 2nd end-of-opt-list option to packet 1");
 	ipOpt1.computeCalculateFields();
 
 
@@ -699,7 +763,7 @@ PACKETPP_TEST(Ipv4OptionsEditTest)
 	tsOption.timestamps.push_back(82524601);
 	for (int i = 0; i < 8; i++)
 		tsOption.timestamps.push_back(0);
-	PACKETPP_ASSERT(ipLayer->addTimestampOption(tsOption) != NULL, "Cannot add timestamp option to packet 2");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(tsOption)).isNull() == false, "Cannot add timestamp option to packet 2");
 	ipOpt2.computeCalculateFields();
 	PACKETPP_ASSERT(buffer22Length == ipOpt2.getRawPacket()->getRawDataLen(), "ipOpt2 len (%d) is different than read packet len (%d)", ipOpt2.getRawPacket()->getRawDataLen(), buffer22Length);
 	PACKETPP_ASSERT(memcmp(ipOpt2.getRawPacket()->getRawData(), buffer22, ipOpt2.getRawPacket()->getRawDataLen()) == 0, "ipOpt2: Raw packet data is different than expected");
@@ -707,7 +771,7 @@ PACKETPP_TEST(Ipv4OptionsEditTest)
 
 	ipLayer = ipOpt3.getLayerOfType<IPv4Layer>();
 	uint16_t routerAlerVal = 0;
-	PACKETPP_ASSERT(ipLayer->addOption(IPV4OPT_RouterAlert, sizeof(uint16_t), (uint8_t*)&routerAlerVal) != NULL, "Cannot add router alert option to packet 3");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(IPV4OPT_RouterAlert, (uint16_t)routerAlerVal)).isNull() == false, "Cannot add router alert option to packet 3");
 	ipOpt3.computeCalculateFields();
 	PACKETPP_ASSERT(buffer33Length == ipOpt3.getRawPacket()->getRawDataLen(), "ipOpt3 len (%d) is different than read packet len (%d)", ipOpt3.getRawPacket()->getRawDataLen(), buffer33Length);
 	PACKETPP_ASSERT(memcmp(ipOpt3.getRawPacket()->getRawData(), buffer33, ipOpt3.getRawPacket()->getRawDataLen()) == 0, "ipOpt3: Raw packet data is different than expected");
@@ -720,8 +784,8 @@ PACKETPP_TEST(Ipv4OptionsEditTest)
 	ipListValue.push_back(IPv4Address(std::string("10.0.0.138")));
 	for (int i = 0; i < 6; i++)
 		ipListValue.push_back(IPv4Address::Zero);
-	PACKETPP_ASSERT(ipLayer->addOption(IPV4OPT_RecordRoute, ipListValue) != NULL, "Cannot add record route option to packet 4");
-	PACKETPP_ASSERT(ipLayer->addOption(IPV4OPT_EndOfOtionsList, 0, NULL) != NULL, "Cannot add end-of-opt-list option to packet 4");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(IPV4OPT_RecordRoute, ipListValue)).isNull() == false, "Cannot add record route option to packet 4");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(IPV4OPT_EndOfOtionsList, NULL, 0)).isNull() == false, "Cannot add end-of-opt-list option to packet 4");
 	ipOpt4.computeCalculateFields();
 	PACKETPP_ASSERT(buffer44Length == ipOpt4.getRawPacket()->getRawDataLen(), "ipOpt4 len (%d) is different than read packet len (%d)", ipOpt4.getRawPacket()->getRawDataLen(), buffer44Length);
 	PACKETPP_ASSERT(memcmp(ipOpt4.getRawPacket()->getRawData(), buffer44, ipOpt4.getRawPacket()->getRawDataLen()) == 0, "ipOpt4: Raw packet data is different than expected");
@@ -730,7 +794,7 @@ PACKETPP_TEST(Ipv4OptionsEditTest)
 	ipLayer = ipOpt5.getLayerOfType<IPv4Layer>();
 	tsOption.clear();
 	LoggerPP::getInstance().supressErrors();
-	PACKETPP_ASSERT(ipLayer->addTimestampOption(tsOption) == NULL, "Managed to add an empty timestamp value");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(tsOption)).isNull() == true, "Managed to add an empty timestamp value");
 	LoggerPP::getInstance().enableErrors();
 	tsOption.type = IPv4TimestampOptionValue::TimestampAndIP;
 	tsOption.ipAddresses.push_back(IPv4Address(std::string("10.0.0.6")));
@@ -738,18 +802,18 @@ PACKETPP_TEST(Ipv4OptionsEditTest)
 	tsOption.ipAddresses.push_back(IPv4Address(std::string("10.0.0.138")));
 	tsOption.ipAddresses.push_back(IPv4Address::Zero);
 	LoggerPP::getInstance().supressErrors();
-	PACKETPP_ASSERT(ipLayer->addTimestampOption(tsOption) == NULL, "Managed to set timestamp option value with non-equal number of timestamps and IPs");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(tsOption)).isNull() == true, "Managed to set timestamp option value with non-equal number of timestamps and IPs");
 	LoggerPP::getInstance().enableErrors();
 	tsOption.timestamps.push_back(70037668);
 	tsOption.timestamps.push_back(77233718);
 	tsOption.timestamps.push_back(77233718);
 	tsOption.timestamps.push_back(0);
-	IPv4OptionData* optData = ipLayer->addTimestampOption(tsOption);
-	PACKETPP_ASSERT(optData != NULL, "Cannot add timestamp option to packet 5");
-	PACKETPP_ASSERT(optData->getType() == IPV4OPT_Timestamp, "Packet 5: timestamp option doesn't have type IPV4OPT_Timestamp");
-	PACKETPP_ASSERT(optData->getTotalSize() == 36, "Packet 5: timestamp option length isn't 36");
+	IPv4Option optData = ipLayer->addOption(IPv4OptionBuilder(tsOption));
+	PACKETPP_ASSERT(optData.isNull() == false, "Cannot add timestamp option to packet 5");
+	PACKETPP_ASSERT(optData.getIPv4OptionType() == IPV4OPT_Timestamp, "Packet 5: timestamp option doesn't have type IPV4OPT_Timestamp");
+	PACKETPP_ASSERT(optData.getTotalSize() == 36, "Packet 5: timestamp option length isn't 36");
 	tsOption.clear();
-	tsOption = optData->getTimestampOptionValue();
+	tsOption = optData.getTimestampOptionValue();
 	PACKETPP_ASSERT(tsOption.type == IPv4TimestampOptionValue::TimestampAndIP, "Packet 5: timestamp data type isn't TimestampAndIP");
 	PACKETPP_ASSERT(tsOption.timestamps.size() == 3, "Packet 5: number of timestamps isn't 3");
 	PACKETPP_ASSERT(tsOption.timestamps.at(1) == htonl(77233718), "Packet 5: timestamps[1] isn't 77233718");
@@ -759,34 +823,32 @@ PACKETPP_TEST(Ipv4OptionsEditTest)
 	PACKETPP_ASSERT(buffer55Length == ipOpt5.getRawPacket()->getRawDataLen(), "ipOpt5 len (%d) is different than read packet len (%d)", ipOpt5.getRawPacket()->getRawDataLen(), buffer55Length);
 	PACKETPP_ASSERT(memcmp(ipOpt5.getRawPacket()->getRawData(), buffer55, ipOpt5.getRawPacket()->getRawDataLen()) == 0, "ipOpt5: Raw packet data is different than expected");
 
-
 	ipLayer = ipOpt6.getLayerOfType<IPv4Layer>();
 	ipListValue.clear();
 	ipListValue.push_back(IPv4Address::Zero);
-	optData = ipLayer->addOption(IPV4OPT_StrictSourceRoute, ipListValue);
-	PACKETPP_ASSERT(optData != NULL, "Cannot add strict source route option to packet 6");
-	PACKETPP_ASSERT(optData->getType() == IPV4OPT_StrictSourceRoute, "Packet 6: strict source route option doesn't have type IPV4OPT_StrictSourceRoute");
-	PACKETPP_ASSERT(optData->getTotalSize() == 7, "Packet 6: strict source route length isn't 7");
-	ipListValue = optData->getValueAsIpList();
+	optData = ipLayer->addOption(IPv4OptionBuilder(IPV4OPT_StrictSourceRoute, ipListValue));
+	PACKETPP_ASSERT(optData.isNull() == false, "Cannot add strict source route option to packet 6");
+	PACKETPP_ASSERT(optData.getIPv4OptionType() == IPV4OPT_StrictSourceRoute, "Packet 6: strict source route option doesn't have type IPV4OPT_StrictSourceRoute");
+	PACKETPP_ASSERT(optData.getTotalSize() == 7, "Packet 6: strict source route length isn't 7");
+	ipListValue = optData.getValueAsIpList();
 	PACKETPP_ASSERT(ipListValue.size() == 0, "Packet 6: strict source route IP list value length isn't 0");
-	optData = ipLayer->addOptionAfter(IPV4OPT_NOP, 0, NULL);
-	PACKETPP_ASSERT(optData != NULL, "Cannot add NOP option to packet 6");
-	PACKETPP_ASSERT(optData->getType() == IPV4OPT_NOP, "Packet 6: NOP option doesn't have type NOP");
-	PACKETPP_ASSERT(optData->getTotalSize() == 1, "Packet 6: NOP option length isn't 1");
+	optData = ipLayer->addOptionAfter(IPv4OptionBuilder(IPV4OPT_NOP, NULL, 0));
+	PACKETPP_ASSERT(optData.isNull() == false, "Cannot add NOP option to packet 6");
+	PACKETPP_ASSERT(optData.getIPv4OptionType() == IPV4OPT_NOP, "Packet 6: NOP option doesn't have type NOP");
+	PACKETPP_ASSERT(optData.getTotalSize() == 1, "Packet 6: NOP option length isn't 1");
 	ipOpt6.computeCalculateFields();
 	PACKETPP_ASSERT(buffer66Length == ipOpt6.getRawPacket()->getRawDataLen(), "ipOpt6 len (%d) is different than read packet len (%d)", ipOpt6.getRawPacket()->getRawDataLen(), buffer66Length);
 	PACKETPP_ASSERT(memcmp(ipOpt6.getRawPacket()->getRawData(), buffer66, ipOpt6.getRawPacket()->getRawDataLen()) == 0, "ipOpt6: Raw packet data is different than expected");
 
-
 	ipLayer = ipOpt7.getLayerOfType<IPv4Layer>();
-	PACKETPP_ASSERT(ipLayer->addOption(IPV4OPT_NOP, 0, NULL) != NULL, "Cannot add NOP option to packet 7");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(IPV4OPT_NOP, NULL, 0)).isNull() == false, "Cannot add NOP option to packet 7");
 	ipListValue.clear();
 	ipListValue.push_back(IPv4Address::Zero);
-	PACKETPP_ASSERT(ipLayer->addOption(IPV4OPT_LooseSourceRoute, ipListValue) != NULL, "Cannot add loose source route option to packet 7");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(IPV4OPT_LooseSourceRoute, ipListValue)).isNull() == false, "Cannot add loose source route option to packet 7");
 	ipOpt7.computeCalculateFields();
 	PACKETPP_ASSERT(buffer77Length == ipOpt7.getRawPacket()->getRawDataLen(), "ipOpt7 len (%d) is different than read packet len (%d)", ipOpt7.getRawPacket()->getRawDataLen(), buffer77Length);
 	PACKETPP_ASSERT(memcmp(ipOpt7.getRawPacket()->getRawData(), buffer77, ipOpt7.getRawPacket()->getRawDataLen()) == 0, "ipOpt7: Raw packet data is different than expected");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 2, "Packet 7 option count after adding loose source route isn't 2, it's %d", ipLayer->getOptionsCount());
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 2, "Packet 7 option count after adding loose source route isn't 2, it's %d", (int)ipLayer->getOptionCount());
 
 	tsOption.clear();
 	tsOption.type = IPv4TimestampOptionValue::TimestampAndIP;
@@ -794,29 +856,28 @@ PACKETPP_TEST(Ipv4OptionsEditTest)
 	tsOption.ipAddresses.push_back(IPv4Address::Zero);
 	tsOption.timestamps.push_back(70037668);
 	tsOption.timestamps.push_back(70037669);
-	PACKETPP_ASSERT(ipLayer->addTimestampOptionAfter(tsOption, IPV4OPT_NOP) != NULL, "Cannot add timestamp option to packet 7");
-	PACKETPP_ASSERT(ipLayer->addOptionAfter(IPV4OPT_RouterAlert, sizeof(uint16_t), (uint8_t*)&routerAlerVal) != NULL, "Cannot add router alert option to packet 7");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 4, "Packet 7 option count after adding router alert option isn't 4");
+	PACKETPP_ASSERT(ipLayer->addOptionAfter(IPv4OptionBuilder(tsOption), IPV4OPT_NOP).isNull() == false, "Cannot add timestamp option to packet 7");
+	PACKETPP_ASSERT(ipLayer->addOptionAfter(IPv4OptionBuilder(IPV4OPT_RouterAlert, (uint16_t)routerAlerVal)).isNull() == false, "Cannot add router alert option to packet 7");
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 4, "Packet 7 option count after adding router alert option isn't 4");
 	ipOpt7.computeCalculateFields();
 	tsOption.clear();
 	tsOption.type = IPv4TimestampOptionValue::TimestampOnly;
 	tsOption.timestamps.push_back(70037670);
-	PACKETPP_ASSERT(ipLayer->addTimestampOption(tsOption) != NULL, "Cannot add 2nd timestamp option to packet 7");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 5, "Packet 7 option count after adding 2nd timestamp option isn't 5");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(tsOption)).isNull() == false, "Cannot add 2nd timestamp option to packet 7");
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 5, "Packet 7 option count after adding 2nd timestamp option isn't 5");
 	LoggerPP::getInstance().supressErrors();
-	PACKETPP_ASSERT(ipLayer->addOption(IPV4OPT_RouterAlert, sizeof(uint16_t), (uint8_t*)&routerAlerVal) == NULL, "Managed to add an option to packet 7 although max option size exceeded");
+	PACKETPP_ASSERT(ipLayer->addOption(IPv4OptionBuilder(IPV4OPT_RouterAlert, (uint16_t)routerAlerVal)).isNull() == true, "Managed to add an option to packet 7 although max option size exceeded");
 	LoggerPP::getInstance().enableErrors();
 	ipOpt7.computeCalculateFields();
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 5, "Packet 7 option count after adding all options isn't 5");
-
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 5, "Packet 7 option count after adding all options isn't 5");
 
 	PACKETPP_ASSERT(ipLayer->removeOption(IPV4OPT_Timestamp) == true, "Cannot remove timestamp option");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 4, "Packet 7 option count after removing 1st timestamp option isn't 4");
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 4, "Packet 7 option count after removing 1st timestamp option isn't 4");
 	ipOpt7.computeCalculateFields();
 	PACKETPP_ASSERT(ipLayer->removeOption(IPV4OPT_RouterAlert) == true, "Cannot remove router alert option");
 	ipOpt7.computeCalculateFields();
 	PACKETPP_ASSERT(ipLayer->removeOption(IPV4OPT_Timestamp) == true, "Cannot remove 2nd timestamp option");
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 2, "Packet 7 option count after removing 2nd timestamp option isn't 2");
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 2, "Packet 7 option count after removing 2nd timestamp option isn't 2");
 	ipOpt7.computeCalculateFields();
 	PACKETPP_ASSERT(buffer77Length == ipOpt7.getRawPacket()->getRawDataLen(), "ipOpt7 len (%d) is different than read packet len (%d)", ipOpt7.getRawPacket()->getRawDataLen(), buffer77Length);
 	PACKETPP_ASSERT(memcmp(ipOpt7.getRawPacket()->getRawData(), buffer77, ipOpt7.getRawPacket()->getRawDataLen()) == 0, "ipOpt7: Raw packet data is different than expected");
@@ -825,7 +886,7 @@ PACKETPP_TEST(Ipv4OptionsEditTest)
 	ipOpt7.computeCalculateFields();
 	PACKETPP_ASSERT(ipOpt7.getRawPacketReadOnly()->getRawDataLen() == 42, "Packet 7 length after removing all options isn't 42");
 	ipLayer = ipOpt7.getLayerOfType<IPv4Layer>();
-	PACKETPP_ASSERT(ipLayer->getOptionsCount() == 0, "Packet 7 option count after removing all options isn't 0");
+	PACKETPP_ASSERT(ipLayer->getOptionCount() == 0, "Packet 7 option count after removing all options isn't 0");
 
 	delete [] buffer11;
 	delete [] buffer22;
@@ -893,9 +954,7 @@ PACKETPP_TEST(Ipv6UdpPacketParseAndCreate)
 	PACKETPP_ASSERT(pUdpLayer->getUdpHeader()->headerChecksum == htons(0x5fea), "UDP dest port != 0x5fea");
 
 	Packet ip6UdpPacketNew(1);
-	MacAddress macSrc("6c:f0:49:b2:de:6e");
-	MacAddress macDest("33:33:00:00:00:0c");
-	EthLayer ethLayer(macSrc, macDest, PCPP_ETHERTYPE_IPV6);
+	EthLayer ethLayer(MacAddress("6c:f0:49:b2:de:6e"), MacAddress ("33:33:00:00:00:0c"));
 
 	IPv6Layer ip6Layer(srcIP, dstIP);
 	ip6_hdr* ip6Header = ip6Layer.getIPv6Header();
@@ -923,6 +982,388 @@ PACKETPP_TEST(Ipv6UdpPacketParseAndCreate)
 	PACKETPP_TEST_PASSED;
 }
 
+PACKETPP_TEST(Ipv6FragmentationTest)
+{
+	int buffer1Length = 0;
+	uint8_t* buffer1 = readFileIntoBuffer("PacketExamples/IPv6Frag1.dat", buffer1Length);
+	PACKETPP_ASSERT(!(buffer1 == NULL), "cannot read file IPv6Frag1.dat");
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/IPv6Frag2.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file IPv6Frag2.dat");
+
+	int buffer3Length = 0;
+	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/IPv6Frag3.dat", buffer3Length);
+	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file IPv6Frag3.dat");
+
+	int buffer4Length = 0;
+	uint8_t* buffer4 = readFileIntoBuffer("PacketExamples/IPv6Frag4.dat", buffer4Length);
+	PACKETPP_ASSERT(!(buffer4 == NULL), "cannot read file IPv6Frag4.dat");
+
+	timeval time;
+	gettimeofday(&time, NULL);
+	RawPacket rawPacket1((const uint8_t*)buffer1, buffer1Length, time, true);
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true);
+	RawPacket rawPacket3((const uint8_t*)buffer3, buffer3Length, time, true);
+	RawPacket rawPacket4((const uint8_t*)buffer4, buffer4Length, time, true);
+
+	Packet frag1(&rawPacket1);
+	Packet frag2(&rawPacket2);
+	Packet frag3(&rawPacket3);
+	Packet frag4(&rawPacket4);
+
+	IPv6Layer* ipv6Layer = frag1.getLayerOfType<IPv6Layer>();
+	IPv6FragmentationHeader* fragHeader = ipv6Layer->getExtensionOfType<IPv6FragmentationHeader>();
+	PACKETPP_ASSERT(fragHeader->getExtensionType() == IPv6Extension::IPv6Fragmentation, "Frag1 extension type isn't IPv6Fragmentation");
+	PACKETPP_ASSERT(fragHeader != NULL, "Frag1 - can't retrieve frag header");
+	PACKETPP_ASSERT(fragHeader->isFirstFragment() == true, "Frag1 isn't first fragment");
+	PACKETPP_ASSERT(fragHeader->isLastFragment() == false, "Frag1 is marked as last fragment");
+	PACKETPP_ASSERT(fragHeader->getFragmentOffset() == 0, "Frag1 offset isn't 0");
+	PACKETPP_ASSERT(ntohl(fragHeader->getFragHeader()->id) == 0xf88eb466, "Frag1 frag id isn't as expected");
+	PACKETPP_ASSERT(fragHeader->getFragHeader()->nextHeader == PACKETPP_IPPROTO_UDP, "Frag1 next header isn't UDP, it's %d", fragHeader->getFragHeader()->nextHeader);
+
+	ipv6Layer = frag2.getLayerOfType<IPv6Layer>();
+	fragHeader = ipv6Layer->getExtensionOfType<IPv6FragmentationHeader>();
+	PACKETPP_ASSERT(fragHeader->getExtensionType() == IPv6Extension::IPv6Fragmentation, "Frag2 extension type isn't IPv6Fragmentation");
+	PACKETPP_ASSERT(fragHeader != NULL, "Frag2 - can't retrieve frag header");
+	PACKETPP_ASSERT(fragHeader->isFirstFragment() == false, "Frag2 is marked as first fragment");
+	PACKETPP_ASSERT(fragHeader->isLastFragment() == false, "Frag2 is marked as last fragment");
+	PACKETPP_ASSERT(fragHeader->getFragmentOffset() == 1448, "Frag2 offset isn't 1448");
+	PACKETPP_ASSERT(ntohl(fragHeader->getFragHeader()->id) == 0xf88eb466, "Frag2 frag id isn't as expected");
+	PACKETPP_ASSERT(fragHeader->getFragHeader()->nextHeader == PACKETPP_IPPROTO_UDP, "Frag2 next header isn't UDP");
+
+	ipv6Layer = frag3.getLayerOfType<IPv6Layer>();
+	fragHeader = ipv6Layer->getExtensionOfType<IPv6FragmentationHeader>();
+	PACKETPP_ASSERT(fragHeader->getExtensionType() == IPv6Extension::IPv6Fragmentation, "Frag3 extension type isn't IPv6Fragmentation");
+	PACKETPP_ASSERT(fragHeader != NULL, "Frag3 - can't retrieve frag header");
+	PACKETPP_ASSERT(fragHeader->isFirstFragment() == false, "Frag3 is marked as first fragment");
+	PACKETPP_ASSERT(fragHeader->isLastFragment() == false, "Frag3 is marked as last fragment");
+	PACKETPP_ASSERT(fragHeader->getFragmentOffset() == 2896, "Frag3 offset isn't 2896");
+	PACKETPP_ASSERT(ntohl(fragHeader->getFragHeader()->id) == 0xf88eb466, "Frag3 frag id isn't as expected");
+	PACKETPP_ASSERT(fragHeader->getFragHeader()->nextHeader == PACKETPP_IPPROTO_UDP, "Frag3 next header isn't UDP");
+
+	ipv6Layer = frag4.getLayerOfType<IPv6Layer>();
+	PACKETPP_ASSERT(ipv6Layer->getHeaderLen() == 48, "Frag4 IPv6 layer len isn't 48");
+	fragHeader = ipv6Layer->getExtensionOfType<IPv6FragmentationHeader>();
+	PACKETPP_ASSERT(fragHeader->getExtensionType() == IPv6Extension::IPv6Fragmentation, "Frag4 extension type isn't IPv6Fragmentation");
+	PACKETPP_ASSERT(fragHeader != NULL, "Frag4 - can't retrieve frag header");
+	PACKETPP_ASSERT(fragHeader->isFirstFragment() == false, "Frag4 is marked as first fragment");
+	PACKETPP_ASSERT(fragHeader->isLastFragment() == true, "Frag4 isn't last fragment");
+	PACKETPP_ASSERT(fragHeader->getFragmentOffset() == 4344, "Frag4 offset isn't 4344");
+	PACKETPP_ASSERT(ntohl(fragHeader->getFragHeader()->id) == 0xf88eb466, "Frag4 frag id isn't as expected");
+	PACKETPP_ASSERT(fragHeader->getFragHeader()->nextHeader == PACKETPP_IPPROTO_UDP, "Frag4 next header isn't UDP");
+
+	EthLayer newEthLayer(*frag1.getLayerOfType<EthLayer>());
+
+	IPv6Layer newIPv6Layer(*frag1.getLayerOfType<IPv6Layer>());
+	PACKETPP_ASSERT(newIPv6Layer.getHeaderLen() == 48, "New IPv6 layer len with old extensions isn't 48");
+	newIPv6Layer.removeAllExtensions();
+	PACKETPP_ASSERT(newIPv6Layer.getHeaderLen() == 40, "New IPv6 layer len without extensions isn't 40");
+
+	PayloadLayer newPayloadLayer(*frag4.getLayerOfType<PayloadLayer>());
+
+	Packet newFrag;
+	newFrag.addLayer(&newEthLayer);
+	newFrag.addLayer(&newIPv6Layer);
+	newFrag.addLayer(&newPayloadLayer);
+
+	IPv6FragmentationHeader newFragHeader(0xf88eb466, 4344, true);
+	newIPv6Layer.addExtension<IPv6FragmentationHeader>(newFragHeader);
+	PACKETPP_ASSERT(newIPv6Layer.getHeaderLen() == 48, "New IPv6 layer len with new frag extension isn't 48");
+
+	newFrag.computeCalculateFields();
+
+	PACKETPP_ASSERT(frag4.getRawPacket()->getRawDataLen() == newFrag.getRawPacket()->getRawDataLen(), "Generated fragment len (%d) is different than frag4 len (%d)", newFrag.getRawPacket()->getRawDataLen(), frag4.getRawPacket()->getRawDataLen());
+	PACKETPP_ASSERT(memcmp(frag4.getRawPacket()->getRawData(), newFrag.getRawPacket()->getRawData(), frag4.getRawPacket()->getRawDataLen()) == 0, "Raw packet data is different than expected");
+
+	PACKETPP_TEST_PASSED;
+}
+
+PACKETPP_TEST(Ipv6ExtensionsTest)
+{
+	int buffer1Length = 0;
+	uint8_t* buffer1 = readFileIntoBuffer("PacketExamples/ipv6_options_destination.dat", buffer1Length);
+	PACKETPP_ASSERT(!(buffer1 == NULL), "cannot read file ipv6_options_destination.dat");
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/ipv6_options_hop_by_hop.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file ipv6_options_hop_by_hop.dat");
+
+	int buffer3Length = 0;
+	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/ipv6_options_routing1.dat", buffer3Length);
+	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file ipv6_options_routing1.dat");
+
+	int buffer4Length = 0;
+	uint8_t* buffer4 = readFileIntoBuffer("PacketExamples/ipv6_options_routing2.dat", buffer4Length);
+	PACKETPP_ASSERT(!(buffer4 == NULL), "cannot read file ipv6_options_routing2.dat");
+
+	int buffer5Length = 0;
+	uint8_t* buffer5 = readFileIntoBuffer("PacketExamples/ipv6_options_ah.dat", buffer5Length);
+	PACKETPP_ASSERT(!(buffer5== NULL), "cannot read file ipv6_options_ah.dat");
+
+	int buffer6Length = 0;
+	uint8_t* buffer6 = readFileIntoBuffer("PacketExamples/ipv6_options_multi.dat", buffer6Length);
+	PACKETPP_ASSERT(!(buffer6== NULL), "cannot read file ipv6_options_multi.dat");
+
+
+	timeval time;
+	gettimeofday(&time, NULL);
+	RawPacket rawPacket1((const uint8_t*)buffer1, buffer1Length, time, true);
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true);
+	RawPacket rawPacket3((const uint8_t*)buffer3, buffer3Length, time, true);
+	RawPacket rawPacket4((const uint8_t*)buffer4, buffer4Length, time, true);
+	RawPacket rawPacket5((const uint8_t*)buffer5, buffer5Length, time, true);
+	RawPacket rawPacket6((const uint8_t*)buffer6, buffer6Length, time, true);
+
+	Packet ipv6Dest(&rawPacket1);
+	Packet ipv6HopByHop(&rawPacket2);
+	Packet ipv6Routing1(&rawPacket3);
+	Packet ipv6Routing2(&rawPacket4);
+	Packet ipv6AuthHdr(&rawPacket5);
+	Packet ipv6MultipleOptions(&rawPacket6);
+
+
+	// parsing of Destionation extension
+	IPv6Layer* ipv6Layer = ipv6Dest.getLayerOfType<IPv6Layer>();
+	PACKETPP_ASSERT(ipv6Layer->getExtensionCount() == 1, "Dest ext packet1: num of extensions isn't 1");
+	IPv6HopByHopHeader* hopByHopExt = ipv6Layer->getExtensionOfType<IPv6HopByHopHeader>();
+	IPv6DestinationHeader* destExt = ipv6Layer->getExtensionOfType<IPv6DestinationHeader>();
+	PACKETPP_ASSERT(hopByHopExt == NULL, "Dest ext packet: Found Hop-By-Hop extension although it doesn't exist");
+	PACKETPP_ASSERT(destExt != NULL, "Dest ext packet: Cannot find dest extension");
+	PACKETPP_ASSERT(destExt->getExtensionType() == IPv6Extension::IPv6Destination, "Dest ext packet: Dest ext type isn't IPv6Extension::IPv6Destination");
+	PACKETPP_ASSERT(destExt->getOptionCount() == 2, "Dest ext packet: Number of options isn't 2");
+	IPv6TLVOptionHeader::IPv6Option option = destExt->getFirstOption();
+	PACKETPP_ASSERT(option.isNull() == false, "Dest ext packet: First option is null");
+	PACKETPP_ASSERT(option.getType() == 11, "Dest ext packet: First option type isn't 11");
+	PACKETPP_ASSERT(option.getTotalSize() == 3, "Dest ext packet: First option total size isn't 3");
+	PACKETPP_ASSERT(option.getDataSize() == 1, "Dest ext packet: First option data size isn't 1");
+	PACKETPP_ASSERT(option.getValueAs<uint8_t>() == 9, "Dest ext packet: First option data isn't 9");
+	option = destExt->getNextOption(option);
+	PACKETPP_ASSERT(option.isNull() == false, "Dest ext packet: Second option is null");
+	PACKETPP_ASSERT(option.getType() == 1, "Dest ext packet: Second option type isn't 1");
+	PACKETPP_ASSERT(option.getTotalSize() == 3, "Dest ext packet: Second option total size isn't 3");
+	PACKETPP_ASSERT(option.getDataSize() == 1, "Dest ext packet: Second option data size isn't 1");
+	PACKETPP_ASSERT(option.getValueAs<uint8_t>() == 0, "Dest ext packet: Second option data isn't 0");
+	option = destExt->getNextOption(option);
+	PACKETPP_ASSERT(option.isNull() == true, "Dest ext packet: Found third option");
+	option = destExt->getOption(11);
+	PACKETPP_ASSERT(option.isNull() == false, "Dest ext packet: Cannot find option with type 11");
+	PACKETPP_ASSERT(option.getTotalSize() == 3, "Dest ext packet: Option with type 11 total size isn't 3");
+	PACKETPP_ASSERT(destExt->getOption(12).isNull() == true, "Dest ext packet: Found option with type 12");
+	PACKETPP_ASSERT(destExt->getOption(0).isNull() == true, "Dest ext packet: Found option with type 0");
+
+
+	// parsing of Hop-By-Hop extension
+	ipv6Layer = ipv6HopByHop.getLayerOfType<IPv6Layer>();
+	hopByHopExt = ipv6Layer->getExtensionOfType<IPv6HopByHopHeader>();
+	destExt = ipv6Layer->getExtensionOfType<IPv6DestinationHeader>();
+	PACKETPP_ASSERT(destExt == NULL, "Hop-By-Hop ext packet: Found dest extension although it doesn't exist");
+	PACKETPP_ASSERT(hopByHopExt != NULL, "Hop-By-Hop ext packet: Cannot find Hop-By-Hop extension");
+	PACKETPP_ASSERT(hopByHopExt->getExtensionType() == IPv6Extension::IPv6HopByHop, "Hop-By-Hop ext packet: Hop-By-Hop ext type isn't IPv6Extension::IPv6HopByHop");
+	PACKETPP_ASSERT(hopByHopExt->getOptionCount() == 2, "Hop-By-Hop ext packet: Number of options isn't 2");
+	PACKETPP_ASSERT(hopByHopExt->getOption(3).isNull() == true, "Hop-By-Hop ext packet: Found option with type 3");
+	PACKETPP_ASSERT(hopByHopExt->getOption(0).isNull() == true, "Hop-By-Hop ext packet: Found option with type 0");
+	option = hopByHopExt->getFirstOption();
+	PACKETPP_ASSERT(option.getType() == 5, "Hop-By-Hop ext packet: First option type isn't 5");
+	PACKETPP_ASSERT(option.getTotalSize() == 4, "Hop-By-Hop ext packet: First option total size isn't 4");
+	PACKETPP_ASSERT(option.getDataSize() == 2, "Hop-By-Hop ext packet: First option data size isn't 2");
+	PACKETPP_ASSERT(option.getValueAs<uint16_t>() == (uint16_t)0, "Hop-By-Hop ext packet: First option data isn't 0");
+	option = hopByHopExt->getNextOption(option);
+	PACKETPP_ASSERT(option.isNull() == false, "Hop-By-Hop ext packet: Second option is null");
+	PACKETPP_ASSERT(option.getType() == 1, "Hop-By-Hop ext packet: Second option type isn't 1");
+	PACKETPP_ASSERT(option.getTotalSize() == 2, "Hop-By-Hop ext packet: Second option total size isn't 2");
+	PACKETPP_ASSERT(option.getDataSize() == 0, "Hop-By-Hop ext packet: Second option data size isn't 0");
+	PACKETPP_ASSERT(option.getValueAs<uint8_t>() == 0, "Hop-By-Hop ext packet: Second option data isn't 0");
+	option = hopByHopExt->getNextOption(option);
+	PACKETPP_ASSERT(option.isNull() == true, "Hop-By-Hop ext packet: Found third option");
+
+
+	// parsing of routing extension #1
+	ipv6Layer = ipv6Routing1.getLayerOfType<IPv6Layer>();
+	hopByHopExt = ipv6Layer->getExtensionOfType<IPv6HopByHopHeader>();
+	PACKETPP_ASSERT(ipv6Layer->getExtensionCount() == 1, "Routing ext packet1: num of extensions isn't 1");
+	IPv6RoutingHeader* routingExt = ipv6Layer->getExtensionOfType<IPv6RoutingHeader>();
+	PACKETPP_ASSERT(destExt == NULL, "Routing ext packet1: Found dest extension although it doesn't exist");
+	PACKETPP_ASSERT(routingExt != NULL, "Routing ext packet1: Cannot find routing extension");
+	PACKETPP_ASSERT(routingExt->getExtensionType() == IPv6Extension::IPv6Routing, "Routing ext packet1: routing ext isn't of type IPv6Extension::IPv6Routing");
+	PACKETPP_ASSERT(routingExt->getRoutingHeader()->routingType == 0, "Routing ext packet1: routing type isn't 0");
+	PACKETPP_ASSERT(routingExt->getRoutingHeader()->segmentsLeft == 2, "Routing ext packet1: segments left isn't 2");
+	PACKETPP_ASSERT(routingExt->getRoutingAdditionalDataLength() == 36, "Routing ext packet1: additional data len isn't 36");
+	PACKETPP_ASSERT(routingExt->getRoutingAdditionalDataAsIPv6Address(4) == IPv6Address(std::string("2200::210:2:0:0:4")), "Routing ext packet1: IPv6 address is wrong");
+	PACKETPP_ASSERT(routingExt->getRoutingAdditionalDataAsIPv6Address(20) == IPv6Address(std::string("2200::240:2:0:0:4")), "Routing ext packet1: second IPv6 address is wrong");
+
+
+	// parsing of routing extension #2
+	ipv6Layer = ipv6Routing2.getLayerOfType<IPv6Layer>();
+	routingExt = ipv6Layer->getExtensionOfType<IPv6RoutingHeader>();
+	PACKETPP_ASSERT(routingExt != NULL, "Routing ext packet2: Cannot find routing extension");
+	PACKETPP_ASSERT(routingExt->getExtensionType() == IPv6Extension::IPv6Routing, "Routing ext packet2: routing ext isn't of type IPv6Extension::IPv6Routing");
+	PACKETPP_ASSERT(routingExt->getRoutingHeader()->routingType == 0, "Routing ext packet2: routing type isn't 0");
+	PACKETPP_ASSERT(routingExt->getRoutingHeader()->segmentsLeft == 1, "Routing ext packet2: segments left isn't 1");
+	PACKETPP_ASSERT(routingExt->getRoutingAdditionalDataLength() == 20, "Routing ext packet2: additional data len isn't 20");
+	PACKETPP_ASSERT(routingExt->getRoutingAdditionalDataAsIPv6Address(4) == IPv6Address(std::string("2200::210:2:0:0:4")), "Routing ext packet2: IPv6 address is wrong");
+	PACKETPP_ASSERT(routingExt->getRoutingAdditionalDataAsIPv6Address(20) == IPv6Address::Zero, "Routing ext packet2: additional data out-of-bounds but isn't returned as zero IPv6 address");
+
+
+	// parsing of authentication header extension
+	ipv6Layer = ipv6AuthHdr.getLayerOfType<IPv6Layer>();
+	IPv6AuthenticationHeader* authHdrExt = ipv6Layer->getExtensionOfType<IPv6AuthenticationHeader>();
+	PACKETPP_ASSERT(authHdrExt != NULL, "AH ext packet: Cannot find AH extension");
+	PACKETPP_ASSERT(authHdrExt->getExtensionType() == IPv6Extension::IPv6AuthenticationHdr, "AH ext packet: AH ext isn't of type IPv6Extension::IPv6AuthenticationHdr");
+	PACKETPP_ASSERT(authHdrExt->getAuthHeader()->securityParametersIndex == htonl(0x100), "AH ext packet: SPI isn't 0x100");
+	PACKETPP_ASSERT(authHdrExt->getAuthHeader()->sequenceNumber == htonl(32), "AH ext packet: sequence isn't 32");
+	PACKETPP_ASSERT(authHdrExt->getIntegrityCheckValueLength() == 12, "AH ext packet: ICV len isn't 12");
+	uint8_t expectedICV[12] = { 0x35, 0x48, 0x21, 0x48, 0xb2, 0x43, 0x5a, 0x23, 0xdc, 0xdd, 0x55, 0x36 };
+	PACKETPP_ASSERT(memcmp(expectedICV, authHdrExt->getIntegrityCheckValue(), authHdrExt->getIntegrityCheckValueLength()) == 0, "AH ext packet: ICV value isn't as expected");
+
+
+	// parsing of multiple options in one IPv6 layer
+	ipv6Layer = ipv6MultipleOptions.getLayerOfType<IPv6Layer>();
+	PACKETPP_ASSERT(ipv6Layer->getExtensionCount() == 4, "Multiple ext packet: Num of extensions isn't 4");
+	PACKETPP_ASSERT(ipv6Layer->getExtensionOfType<IPv6AuthenticationHeader>() != NULL, "Multiple ext packet: Cannot find AH extension");
+	PACKETPP_ASSERT(ipv6Layer->getExtensionOfType<IPv6AuthenticationHeader>()->getAuthHeader()->securityParametersIndex = ntohl(0x100),
+			"Multiple ext packet: AH ext SPI isn't 0x100");
+	PACKETPP_ASSERT(ipv6Layer->getExtensionOfType<IPv6DestinationHeader>() != NULL, "Multiple ext packet: Cannot find Dest extension");
+	PACKETPP_ASSERT(ipv6Layer->getExtensionOfType<IPv6DestinationHeader>()->getFirstOption().getType() == 11,
+			"Multiple ext packet: Dest ext first option type isn't 11");
+	PACKETPP_ASSERT(ipv6Layer->getExtensionOfType<IPv6HopByHopHeader>() != NULL, "Multiple ext packet: Cannot find Hop-By-Hop extension");
+	PACKETPP_ASSERT(ipv6Layer->getExtensionOfType<IPv6HopByHopHeader>()->getFirstOption().getType() == 5,
+			"Multiple ext packet: Hop-By-Hop ext first option type isn't 5");
+	PACKETPP_ASSERT(ipv6Layer->getExtensionOfType<IPv6RoutingHeader>() != NULL, "Multiple ext packet: Cannot find Routing extension");
+	PACKETPP_ASSERT(ipv6Layer->getExtensionOfType<IPv6RoutingHeader>()->getRoutingHeader()->routingType == 0,
+			"Multiple ext packet: Routing ext - routing type isn't 0");
+
+
+	// creation of Destination extension
+	EthLayer newEthLayer(*ipv6Dest.getLayerOfType<EthLayer>());
+
+	IPv6Layer newIPv6Layer(*ipv6Dest.getLayerOfType<IPv6Layer>());
+	PACKETPP_ASSERT(newIPv6Layer.getHeaderLen() == 48, "New IPv6 layer len with old extensions isn't 48");
+	newIPv6Layer.removeAllExtensions();
+	PACKETPP_ASSERT(newIPv6Layer.getHeaderLen() == 40, "New IPv6 layer len without extensions isn't 40");
+
+	std::vector<IPv6TLVOptionHeader::IPv6TLVOptionBuilder> destExtOptions;
+	destExtOptions.push_back(IPv6TLVOptionHeader::IPv6TLVOptionBuilder(11, (uint8_t)9));
+	destExtOptions.push_back(IPv6TLVOptionHeader::IPv6TLVOptionBuilder(1, (uint8_t)0));
+	IPv6DestinationHeader newDestExtHeader(destExtOptions);
+	newIPv6Layer.addExtension<IPv6DestinationHeader>(newDestExtHeader);
+
+	UdpLayer newUdpLayer(*ipv6Dest.getLayerOfType<UdpLayer>());
+	PayloadLayer newPayloadLayer(*ipv6Dest.getLayerOfType<PayloadLayer>());
+
+	Packet newPacket;
+	newPacket.addLayer(&newEthLayer);
+	newPacket.addLayer(&newIPv6Layer);
+	newPacket.addLayer(&newUdpLayer);
+	newPacket.addLayer(&newPayloadLayer);
+	newPacket.computeCalculateFields();
+
+	PACKETPP_ASSERT(ipv6Dest.getRawPacket()->getRawDataLen() == newPacket.getRawPacket()->getRawDataLen(), "IPv6 Dest ext: Generated packet len (%d) is different than original packet len (%d)", newPacket.getRawPacket()->getRawDataLen(), ipv6Dest.getRawPacket()->getRawDataLen());
+	PACKETPP_ASSERT(memcmp(ipv6Dest.getRawPacket()->getRawData(), newPacket.getRawPacket()->getRawData(), ipv6Dest.getRawPacket()->getRawDataLen()) == 0, "IPv6 Dest ext: Raw packet data is different than expected");
+
+
+	// creation of hop-by-hop extension
+	EthLayer newEthLayer2(*ipv6HopByHop.getLayerOfType<EthLayer>());
+
+	IPv6Layer newIPv6Layer2(*ipv6HopByHop.getLayerOfType<IPv6Layer>());
+	PACKETPP_ASSERT(newIPv6Layer2.getHeaderLen() == 48, "New IPv6 layer len with old extensions isn't 48");
+	newIPv6Layer2.removeAllExtensions();
+	PACKETPP_ASSERT(newIPv6Layer2.getHeaderLen() == 40, "New IPv6 layer len without extensions isn't 40");
+
+	std::vector<IPv6TLVOptionHeader::IPv6TLVOptionBuilder> hopByHopExtOptions;
+	hopByHopExtOptions.push_back(IPv6TLVOptionHeader::IPv6TLVOptionBuilder(5, (uint16_t)0));
+	hopByHopExtOptions.push_back(IPv6TLVOptionHeader::IPv6TLVOptionBuilder(1, NULL, 0));
+	IPv6HopByHopHeader newHopByHopHeader(hopByHopExtOptions);
+	newIPv6Layer2.addExtension<IPv6HopByHopHeader>(newHopByHopHeader);
+
+	PayloadLayer newPayloadLayer2(*ipv6HopByHop.getLayerOfType<PayloadLayer>());
+
+	Packet newPacket2;
+	newPacket2.addLayer(&newEthLayer2);
+	newPacket2.addLayer(&newIPv6Layer2);
+	newPacket2.addLayer(&newPayloadLayer2);
+	newPacket2.computeCalculateFields();
+
+	PACKETPP_ASSERT(ipv6HopByHop.getRawPacket()->getRawDataLen() == newPacket2.getRawPacket()->getRawDataLen(), "IPv6 hop-by-hop ext: Generated packet len (%d) is different than original packet len (%d)", newPacket2.getRawPacket()->getRawDataLen(), ipv6HopByHop.getRawPacket()->getRawDataLen());
+	PACKETPP_ASSERT(memcmp(ipv6HopByHop.getRawPacket()->getRawData(), newPacket2.getRawPacket()->getRawData(), ipv6HopByHop.getRawPacket()->getRawDataLen()) == 0, "IPv6 hop-by-hop ext: Raw packet data is different than expected");
+
+
+	// creation of routing extension
+	EthLayer newEthLayer3(*ipv6Routing2.getLayerOfType<EthLayer>());
+
+	IPv6Layer newIPv6Layer3(*ipv6Routing2.getLayerOfType<IPv6Layer>());
+	PACKETPP_ASSERT(newIPv6Layer3.getHeaderLen() == 64, "New IPv6 layer len with old extensions isn't 64");
+	newIPv6Layer3.removeAllExtensions();
+	PACKETPP_ASSERT(newIPv6Layer3.getHeaderLen() == 40, "New IPv6 layer len without extensions isn't 40");
+
+	uint8_t* routingAdditionalData = new uint8_t[20];
+	memset(routingAdditionalData, 0, 20);
+	IPv6Address ip6Addr(std::string("2200::210:2:0:0:4"));
+	ip6Addr.copyTo(routingAdditionalData + 4);
+	IPv6RoutingHeader newRoutingHeader(0, 1, routingAdditionalData, 20);
+	newIPv6Layer3.addExtension<IPv6RoutingHeader>(newRoutingHeader);
+	delete [] routingAdditionalData;
+
+	UdpLayer newUdpLayer3(*ipv6Routing2.getLayerOfType<UdpLayer>());
+
+	Packet newPacket3;
+	newPacket3.addLayer(&newEthLayer3);
+	newPacket3.addLayer(&newIPv6Layer3);
+	newPacket3.addLayer(&newUdpLayer3);
+
+	PACKETPP_ASSERT(ipv6Routing2.getRawPacket()->getRawDataLen() == newPacket3.getRawPacket()->getRawDataLen(), "IPv6 routing ext: Generated packet len (%d) is different than original packet len (%d)", newPacket3.getRawPacket()->getRawDataLen(), ipv6Routing2.getRawPacket()->getRawDataLen());
+	PACKETPP_ASSERT(memcmp(ipv6Routing2.getRawPacket()->getRawData(), newPacket3.getRawPacket()->getRawData(), ipv6Routing2.getRawPacket()->getRawDataLen()) == 0, "IPv6 routing ext: Raw packet data is different than expected");
+
+
+	// creation of AH extension
+	EthLayer newEthLayer4(*ipv6AuthHdr.getLayerOfType<EthLayer>());
+
+	IPv6Layer newIPv6Layer4(*ipv6AuthHdr.getLayerOfType<IPv6Layer>());
+	PACKETPP_ASSERT(newIPv6Layer4.getHeaderLen() == 64, "New IPv6 layer len with old extensions isn't 64");
+	newIPv6Layer4.removeAllExtensions();
+	PACKETPP_ASSERT(newIPv6Layer4.getHeaderLen() == 40, "New IPv6 layer len without extensions isn't 40");
+
+	IPv6AuthenticationHeader newAHExtension(0x100, 32, expectedICV, 12);
+	newIPv6Layer4.addExtension<IPv6AuthenticationHeader>(newAHExtension);
+
+	PayloadLayer newPayloadLayer4(*ipv6AuthHdr.getLayerOfType<PayloadLayer>());
+
+	Packet newPacket4;
+	newPacket4.addLayer(&newEthLayer4);
+	newPacket4.addLayer(&newIPv6Layer4);
+	newPacket4.addLayer(&newPayloadLayer4);
+	newPacket4.computeCalculateFields();
+
+	PACKETPP_ASSERT(ipv6AuthHdr.getRawPacket()->getRawDataLen() == newPacket4.getRawPacket()->getRawDataLen(), "IPv6 AH ext: Generated packet len (%d) is different than original packet len (%d)", newPacket4.getRawPacket()->getRawDataLen(), ipv6AuthHdr.getRawPacket()->getRawDataLen());
+	PACKETPP_ASSERT(memcmp(ipv6AuthHdr.getRawPacket()->getRawData(), newPacket4.getRawPacket()->getRawData(), ipv6AuthHdr.getRawPacket()->getRawDataLen()) == 0, "IPv6 AH ext: Raw packet data is different than expected");
+
+
+	// creation of packet with several extensions
+	EthLayer newEthLayer5(*ipv6AuthHdr.getLayerOfType<EthLayer>());
+
+	IPv6Layer newIPv6Layer5(*ipv6AuthHdr.getLayerOfType<IPv6Layer>());
+	newIPv6Layer5.removeAllExtensions();
+
+	newIPv6Layer5.addExtension<IPv6HopByHopHeader>(newHopByHopHeader);
+	newIPv6Layer5.addExtension<IPv6DestinationHeader>(newDestExtHeader);
+	newIPv6Layer5.addExtension<IPv6RoutingHeader>(newRoutingHeader);
+	newIPv6Layer5.addExtension<IPv6AuthenticationHeader>(newAHExtension);
+
+	PayloadLayer newPayloadLayer5(*ipv6AuthHdr.getLayerOfType<PayloadLayer>());
+
+	Packet newPacket5;
+	newPacket5.addLayer(&newEthLayer5);
+	newPacket5.addLayer(&newIPv6Layer5);
+	newPacket5.addLayer(&newPayloadLayer5);
+	newPacket5.computeCalculateFields();
+
+	PACKETPP_ASSERT(ipv6MultipleOptions.getRawPacket()->getRawDataLen() == newPacket5.getRawPacket()->getRawDataLen(), "IPv6 multiple ext: Generated packet len (%d) is different than original packet len (%d)", newPacket5.getRawPacket()->getRawDataLen(), ipv6MultipleOptions.getRawPacket()->getRawDataLen());
+	PACKETPP_ASSERT(memcmp(ipv6MultipleOptions.getRawPacket()->getRawData(), newPacket5.getRawPacket()->getRawData(), ipv6MultipleOptions.getRawPacket()->getRawDataLen()) == 0, "IPv6 multiple ext: Raw packet data is different than expected");
+
+
+	PACKETPP_TEST_PASSED;
+}
+
 PACKETPP_TEST(TcpPacketNoOptionsParsing)
 {
 	int bufferLength = 0;
@@ -941,8 +1382,8 @@ PACKETPP_TEST(TcpPacketNoOptionsParsing)
 
 	PACKETPP_ASSERT(tcpLayer->getTcpHeader()->portDst == htons(60388), "Dest port != 60388, it's %d", ntohs(tcpLayer->getTcpHeader()->portDst));
 	PACKETPP_ASSERT(tcpLayer->getTcpHeader()->portSrc == htons(80), "Src port != 80, it's %d", ntohs(tcpLayer->getTcpHeader()->portSrc));
-	PACKETPP_ASSERT(tcpLayer->getTcpHeader()->sequenceNumber == htonl(0xbeab364a), "Sequence number != 0xbeab364a, it's 0x%lX", ntohl(tcpLayer->getTcpHeader()->sequenceNumber));
-	PACKETPP_ASSERT(tcpLayer->getTcpHeader()->ackNumber == htonl(0xf9ffb58e), "Ack number != 0xf9ffb58e, it's 0x%lX", ntohl(tcpLayer->getTcpHeader()->ackNumber));
+	PACKETPP_ASSERT(tcpLayer->getTcpHeader()->sequenceNumber == htonl(0xbeab364a), "Sequence number != 0xbeab364a, it's 0x%X", (int)ntohl(tcpLayer->getTcpHeader()->sequenceNumber));
+	PACKETPP_ASSERT(tcpLayer->getTcpHeader()->ackNumber == htonl(0xf9ffb58e), "Ack number != 0xf9ffb58e, it's 0x%X", (int)ntohl(tcpLayer->getTcpHeader()->ackNumber));
 	PACKETPP_ASSERT(tcpLayer->getTcpHeader()->dataOffset == 5, "Header length != 5 (20 bytes), it's %d", tcpLayer->getTcpHeader()->dataOffset);
 	PACKETPP_ASSERT(tcpLayer->getTcpHeader()->urgentPointer == 0, "Urgent pointer != 0, it's %d", tcpLayer->getTcpHeader()->urgentPointer);
 	PACKETPP_ASSERT(tcpLayer->getTcpHeader()->headerChecksum == htons(0x4c03), "Header checksum != 0x4c03, it's 0x%4X", ntohs(tcpLayer->getTcpHeader()->headerChecksum));
@@ -959,9 +1400,9 @@ PACKETPP_TEST(TcpPacketNoOptionsParsing)
 	PACKETPP_ASSERT(tcpLayer->getTcpHeader()->reserved == 0, "Reserved != 0");
 
 	// TCP options
-	PACKETPP_ASSERT(tcpLayer->getTcpOptionsCount() == 0, "TCP options count isn't 0, it's %d", tcpLayer->getTcpOptionsCount());
-	PACKETPP_ASSERT(tcpLayer->getTcpOptionData(PCPP_TCPOPT_NOP) == NULL, "TCP option NOP isn't NULL");
-	PACKETPP_ASSERT(tcpLayer->getTcpOptionData(PCPP_TCPOPT_TIMESTAMP) == NULL, "TCP option Timestamp isn't NULL");
+	PACKETPP_ASSERT(tcpLayer->getTcpOptionCount() == 0, "TCP options count isn't 0, it's %d", (int)tcpLayer->getTcpOptionCount());
+	PACKETPP_ASSERT(tcpLayer->getTcpOption(PCPP_TCPOPT_NOP).isNull(), "TCP option NOP isn't NULL");
+	PACKETPP_ASSERT(tcpLayer->getTcpOption(PCPP_TCPOPT_TIMESTAMP).isNull(), "TCP option Timestamp isn't NULL");
 
 	Layer* afterTcpLayer = tcpLayer->getNextLayer();
 	PACKETPP_ASSERT(afterTcpLayer != NULL, "Layer after TCP is NULL");
@@ -994,18 +1435,15 @@ PACKETPP_TEST(TcpPacketWithOptionsParsing)
 	PACKETPP_ASSERT(tcpLayer->getTcpHeader()->urgentPointer == 0, "Urgent pointer != 0, it's %d", tcpLayer->getTcpHeader()->urgentPointer);
 
 	// TCP options
-	PACKETPP_ASSERT(tcpLayer->getTcpOptionsCount() == 3, "TCP options count != 3, it's %d", tcpLayer->getTcpOptionsCount());
-	TcpOptionData* nopOptionData = NULL;
-	TcpOptionData* timestampOptionData = NULL;
-	PACKETPP_ASSERT((timestampOptionData = tcpLayer->getTcpOptionData(PCPP_TCPOPT_TIMESTAMP)) != NULL, "TCP option Timestamp is NULL");
-	PACKETPP_ASSERT((nopOptionData = tcpLayer->getTcpOptionData(PCPP_TCPOPT_NOP)) != NULL, "TCP option NOP is NULL");
-	PACKETPP_ASSERT(timestampOptionData->len == 10, "TCP option Timestamp length != 10, it's 0x%X", timestampOptionData->len);
-	uint32_t tsValue = 0;
-	uint32_t tsEchoReply = 0;
-	memcpy(&tsValue, timestampOptionData->value, 4);
-	memcpy(&tsEchoReply, timestampOptionData->value+4, 4);
-	PACKETPP_ASSERT(tsValue == htonl(195102), "TCP option Timestamp option: timestamp value != 195102, it's %ld", ntohl(tsValue));
-	PACKETPP_ASSERT(tsEchoReply == htonl(3555729271UL), "TCP option Timestamp option: echo reply value != 3555729271, it's %ld", ntohl(tsEchoReply));
+	PACKETPP_ASSERT(tcpLayer->getTcpOptionCount() == 3, "TCP options count != 3, it's %d", (int)tcpLayer->getTcpOptionCount());
+	TcpOption timestampOptionData = tcpLayer->getTcpOption(PCPP_TCPOPT_TIMESTAMP);
+	PACKETPP_ASSERT(!timestampOptionData.isNull(), "TCP option Timestamp is NULL");
+	PACKETPP_ASSERT(!tcpLayer->getTcpOption(PCPP_TCPOPT_NOP).isNull(), "TCP option NOP is NULL");
+	PACKETPP_ASSERT(timestampOptionData.getTotalSize() == 10, "TCP option Timestamp length != 10, it's %d", (int)timestampOptionData.getTotalSize());
+	uint32_t tsValue = timestampOptionData.getValueAs<uint32_t>();
+	uint32_t tsEchoReply = timestampOptionData.getValueAs<uint32_t>(4);
+	PACKETPP_ASSERT(tsValue == htonl(195102), "TCP option Timestamp option: timestamp value != 195102, it's %d", (int)ntohl(tsValue));
+	PACKETPP_ASSERT(tsEchoReply == htonl(3555729271UL), "TCP option Timestamp option: echo reply value != 3555729271, it's %d", (int)ntohl(tsEchoReply));
 
 	PACKETPP_TEST_PASSED;
 }
@@ -1025,40 +1463,40 @@ PACKETPP_TEST(TcpPacketWithOptionsParsing2)
 	TcpLayer* tcpLayer = NULL;
 	PACKETPP_ASSERT((tcpLayer = tcpPaketWithOptions.getLayerOfType<TcpLayer>()) != NULL, "TCP layer is NULL");
 
-	PACKETPP_ASSERT(tcpLayer->getTcpOptionsCount() == 5, "TCP options count != 5, it's %d", tcpLayer->getTcpOptionsCount());
-	TcpOptionData* mssOptionData = NULL;
-	TcpOptionData* sackParmOptionData = NULL;
-	TcpOptionData* windowScaleOptionData = NULL;
-	PACKETPP_ASSERT((mssOptionData = tcpLayer->getTcpOptionData(TCPOPT_MSS)) != NULL, "TCP option MSS is NULL");
-	PACKETPP_ASSERT((sackParmOptionData = tcpLayer->getTcpOptionData(TCPOPT_SACK_PERM)) != NULL, "TCP option SACK perm is NULL");
-	PACKETPP_ASSERT((windowScaleOptionData = tcpLayer->getTcpOptionData(PCPP_TCPOPT_WINDOW)) != NULL, "TCP option window scale is NULL");
+	PACKETPP_ASSERT(tcpLayer->getTcpOptionCount() == 5, "TCP options count != 5, it's %d", (int)tcpLayer->getTcpOptionCount());
+	TcpOption mssOption = tcpLayer->getTcpOption(TCPOPT_MSS);
+	TcpOption sackParmOption = tcpLayer->getTcpOption(TCPOPT_SACK_PERM);
+	TcpOption windowScaleOption = tcpLayer->getTcpOption(PCPP_TCPOPT_WINDOW);
+	PACKETPP_ASSERT(mssOption.isNotNull(), "TCP option MSS is NULL");
+	PACKETPP_ASSERT(sackParmOption.isNotNull(), "TCP option SACK perm is NULL");
+	PACKETPP_ASSERT(windowScaleOption.isNotNull(), "TCP option window scale is NULL");
 
-	PACKETPP_ASSERT(mssOptionData->getType() == TCPOPT_MSS, "MSS option isn't of type TCPOPT_MSS");
-	PACKETPP_ASSERT(sackParmOptionData->getType() == TCPOPT_SACK_PERM, "Sack perm option isn't of type TCPOPT_SACK_PERM");
-	PACKETPP_ASSERT(windowScaleOptionData->getType() == PCPP_TCPOPT_WINDOW, "Window scale option isn't of type PCPP_TCPOPT_WINDOW");
+	PACKETPP_ASSERT(mssOption.getTcpOptionType() == TCPOPT_MSS, "MSS option isn't of type TCPOPT_MSS");
+	PACKETPP_ASSERT(sackParmOption.getTcpOptionType() == TCPOPT_SACK_PERM, "Sack perm option isn't of type TCPOPT_SACK_PERM");
+	PACKETPP_ASSERT(windowScaleOption.getTcpOptionType() == PCPP_TCPOPT_WINDOW, "Window scale option isn't of type PCPP_TCPOPT_WINDOW");
 
-	PACKETPP_ASSERT(mssOptionData->len == 4, "TCP option Timestamp length != 4, it's 0x%X", mssOptionData->len);
-	PACKETPP_ASSERT(sackParmOptionData->len == 2, "TCP option SACK perm length != 2, it's 0x%X", sackParmOptionData->len);
-	PACKETPP_ASSERT(windowScaleOptionData->len == 3, "TCP option window scale length != 3, it's 0x%X", mssOptionData->len);
+	PACKETPP_ASSERT(mssOption.getTotalSize() == 4, "TCP option Timestamp length != 4, it's %d", (int)mssOption.getTotalSize());
+	PACKETPP_ASSERT(sackParmOption.getTotalSize() == 2, "TCP option SACK perm length != 2, it's %d", (int)sackParmOption.getTotalSize());
+	PACKETPP_ASSERT(windowScaleOption.getTotalSize() == 3, "TCP option window scale length != 3, it's %d", (int)mssOption.getTotalSize());
 
-	PACKETPP_ASSERT(mssOptionData->getValueAs<uint16_t>() == htons(1460), "TCP option MSS option: value != 1460, it's %d", ntohs(mssOptionData->getValueAs<uint16_t>()));
-	PACKETPP_ASSERT(windowScaleOptionData->getValueAs<uint8_t>() == 4, "TCP option window scale option: value != 4, it's %d", windowScaleOptionData->getValueAs<uint8_t>());
-	PACKETPP_ASSERT(sackParmOptionData->getValueAs<uint32_t>() == 0, "TCP option sack perm option: value != 0, it's %d", sackParmOptionData->getValueAs<uint32_t>());
-	PACKETPP_ASSERT(mssOptionData->getValueAs<uint32_t>() == 0, "Wrongly fetched MSS value as uint32_t");
-	PACKETPP_ASSERT(mssOptionData->getValueAs<uint16_t>(1) == 0, "Wrongly fetched MSS value as uint16_t from offset 1");
+	PACKETPP_ASSERT(mssOption.getValueAs<uint16_t>() == htons(1460), "TCP option MSS option: value != 1460, it's %d", ntohs(mssOption.getValueAs<uint16_t>()));
+	PACKETPP_ASSERT(windowScaleOption.getValueAs<uint8_t>() == 4, "TCP option window scale option: value != 4, it's %d", windowScaleOption.getValueAs<uint8_t>());
+	PACKETPP_ASSERT(sackParmOption.getValueAs<uint32_t>() == 0, "TCP option sack perm option: value != 0, it's %d", sackParmOption.getValueAs<uint32_t>());
+	PACKETPP_ASSERT(mssOption.getValueAs<uint32_t>() == 0, "Wrongly fetched MSS value as uint32_t");
+	PACKETPP_ASSERT(mssOption.getValueAs<uint16_t>(1) == 0, "Wrongly fetched MSS value as uint16_t from offset 1");
 
-	TcpOptionData* curOpt = tcpLayer->getFirstTcpOptionData();
-	PACKETPP_ASSERT(curOpt != NULL && curOpt->getType() == TCPOPT_MSS, "First option isn't of type TCPOPT_MSS");
-	curOpt = tcpLayer->getNextTcpOptionData(curOpt);
-	PACKETPP_ASSERT(curOpt != NULL && curOpt->getType() == TCPOPT_SACK_PERM, "Second option isn't of type TCPOPT_SACK_PERM");
-	curOpt = tcpLayer->getNextTcpOptionData(curOpt);
-	PACKETPP_ASSERT(curOpt != NULL && curOpt->getType() == PCPP_TCPOPT_TIMESTAMP, "Third option isn't of type PCPP_TCPOPT_TIMESTAMP");
-	curOpt = tcpLayer->getNextTcpOptionData(curOpt);
-	PACKETPP_ASSERT(curOpt != NULL && curOpt->getType() == PCPP_TCPOPT_NOP, "Fourth option isn't of type PCPP_TCPOPT_NOP");
-	curOpt = tcpLayer->getNextTcpOptionData(curOpt);
-	PACKETPP_ASSERT(curOpt != NULL && curOpt->getType() == PCPP_TCPOPT_WINDOW, "Fifth option isn't of type PCPP_TCPOPT_WINDOW");
-	curOpt = tcpLayer->getNextTcpOptionData(curOpt);
-	PACKETPP_ASSERT(curOpt == NULL, "There is sixth TCP option");
+	TcpOption curOpt = tcpLayer->getFirstTcpOption();
+	PACKETPP_ASSERT(curOpt.isNotNull() && curOpt.getTcpOptionType() == TCPOPT_MSS, "First option isn't of type TCPOPT_MSS");
+	curOpt = tcpLayer->getNextTcpOption(curOpt);
+	PACKETPP_ASSERT(curOpt.isNotNull() && curOpt.getTcpOptionType() == TCPOPT_SACK_PERM, "Second option isn't of type TCPOPT_SACK_PERM");
+	curOpt = tcpLayer->getNextTcpOption(curOpt);
+	PACKETPP_ASSERT(curOpt.isNotNull() && curOpt.getTcpOptionType() == PCPP_TCPOPT_TIMESTAMP, "Third option isn't of type PCPP_TCPOPT_TIMESTAMP");
+	curOpt = tcpLayer->getNextTcpOption(curOpt);
+	PACKETPP_ASSERT(curOpt.isNotNull() && curOpt.getTcpOptionType() == PCPP_TCPOPT_NOP, "Fourth option isn't of type PCPP_TCPOPT_NOP");
+	curOpt = tcpLayer->getNextTcpOption(curOpt);
+	PACKETPP_ASSERT(curOpt.isNotNull() && curOpt.getTcpOptionType() == PCPP_TCPOPT_WINDOW, "Fifth option isn't of type PCPP_TCPOPT_WINDOW");
+	curOpt = tcpLayer->getNextTcpOption(curOpt);
+	PACKETPP_ASSERT(curOpt.isNull(), "There is sixth TCP option");
 
 	PACKETPP_TEST_PASSED;
 }
@@ -1080,17 +1518,13 @@ PACKETPP_TEST(TcpPacketCreation)
 	tcpLayer.getTcpHeader()->ackFlag = 1;
 	tcpLayer.getTcpHeader()->pshFlag = 1;
 	tcpLayer.getTcpHeader()->windowSize = htons(20178);
-	PACKETPP_ASSERT(tcpLayer.addTcpOption(PCPP_TCPOPT_NOP, PCPP_TCPOLEN_NOP, NULL) != NULL, "Couldn't add 1st NOP option");
+	PACKETPP_ASSERT(tcpLayer.addTcpOption(TcpOptionBuilder(TcpOptionBuilder::NOP)).isNotNull(), "Couldn't add 1st NOP option");
 	PACKETPP_ASSERT(tcpLayer.getHeaderLen() == 24, "Header len isn't 24 after 1st NOP addition")
-	PACKETPP_ASSERT(tcpLayer.addTcpOption(PCPP_TCPOPT_NOP, PCPP_TCPOLEN_NOP, NULL) != NULL, "Couldn't add 2nd NOP option");
+	PACKETPP_ASSERT(tcpLayer.addTcpOption(TcpOptionBuilder(TcpOptionBuilder::NOP)).isNotNull(), "Couldn't add 2nd NOP option");
 	PACKETPP_ASSERT(tcpLayer.getHeaderLen() == 24, "Header len isn't 24 after 2nd NOP addition")
-	TcpOptionData* tsOption = tcpLayer.addTcpOption(PCPP_TCPOPT_TIMESTAMP, PCPP_TCPOLEN_TIMESTAMP, NULL);
+	PACKETPP_ASSERT(tcpLayer.addTcpOption(TcpOptionBuilder(PCPP_TCPOPT_TIMESTAMP, NULL, PCPP_TCPOLEN_TIMESTAMP-2)).isNotNull(), "Couldn't add timestamp option");
 	PACKETPP_ASSERT(tcpLayer.getHeaderLen() == 32, "Header len isn't 32 after timestamp addition")
-
-	PACKETPP_ASSERT(tsOption != NULL, "Couldn't add timestamp option");
-	tsOption->setValue<uint32_t>(htonl(3555735960UL));
-
-	PACKETPP_ASSERT(tcpLayer.getTcpOptionsCount() == 3, "TCP option count isn't 3");
+	PACKETPP_ASSERT(tcpLayer.getTcpOptionCount() == 3, "TCP option count isn't 3");
 
 	uint8_t payloadData[9] = { 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82 };
 	PayloadLayer PayloadLayer(payloadData, 9, true);
@@ -1102,11 +1536,13 @@ PACKETPP_TEST(TcpPacketCreation)
 	tcpPacket.addLayer(&PayloadLayer);
 
 	uint32_t tsEchoReply = htonl(196757);
-	TcpOptionData* tsOptionData = tcpLayer.getTcpOptionData(PCPP_TCPOPT_TIMESTAMP);
-	PACKETPP_ASSERT(tsOptionData != NULL, "Couldn't get timestamp option");
-	tsOptionData->setValue<uint32_t>(tsEchoReply, 4);
+	uint32_t tsValue = htonl(3555735960UL);
+	TcpOption tsOption = tcpLayer.getTcpOption(PCPP_TCPOPT_TIMESTAMP);
+	PACKETPP_ASSERT(tsOption.isNotNull(), "Couldn't get timestamp option");
+	tsOption.setValue<uint32_t>(tsValue);
+	tsOption.setValue<uint32_t>(tsEchoReply, 4);
 
-	PACKETPP_ASSERT(tcpLayer.getTcpOptionsCount() == 3, "TCP option count (2nd check) isn't 3");
+	PACKETPP_ASSERT(tcpLayer.getTcpOptionCount() == 3, "TCP option count (2nd check) isn't 3");
 
 	tcpPacket.computeCalculateFields();
 
@@ -1151,31 +1587,26 @@ PACKETPP_TEST(TcpPacketCreation2)
 	tcpLayer.getTcpHeader()->synFlag = 1;
 	tcpLayer.getTcpHeader()->windowSize = htons(14600);
 
-	TcpOptionData* nopOption = tcpLayer.addTcpOption(PCPP_TCPOPT_NOP, PCPP_TCPOLEN_NOP, NULL);
-	PACKETPP_ASSERT(nopOption != NULL, "Couldn't add NOP option");
+	PACKETPP_ASSERT(tcpLayer.addTcpOption(TcpOptionBuilder(TcpOptionBuilder::NOP)).isNotNull(), "Couldn't add NOP option");
 	PACKETPP_ASSERT(tcpLayer.getHeaderLen() == 24, "Header len isn't 24 after NOP addition");
 
-	uint16_t mssValue = htons(1460);
-	TcpOptionData* mssOption = tcpLayer.addTcpOptionAfter(TCPOPT_MSS, PCPP_TCPOLEN_MSS, (uint8_t*)&mssValue, NULL);
-	PACKETPP_ASSERT(mssOption != NULL, "Couldn't add MSS option");
+	PACKETPP_ASSERT(tcpLayer.addTcpOptionAfter(TcpOptionBuilder(TCPOPT_MSS, (uint16_t)1460)).isNotNull(), "Couldn't add MSS option");
 	PACKETPP_ASSERT(tcpLayer.getHeaderLen() == 28, "Header len isn't 28 after MSS addition")
 
-	TcpOptionData* tsOption = tcpLayer.addTcpOptionAfter(PCPP_TCPOPT_TIMESTAMP, PCPP_TCPOLEN_TIMESTAMP, NULL, mssOption);
-	PACKETPP_ASSERT(tsOption != NULL, "Couldn't add timestamp option");
-	tsOption->setValue<uint32_t>(htonl(197364));
-	tsOption->setValue<uint32_t>(0, 4);
+	TcpOption tsOption = tcpLayer.addTcpOptionAfter(TcpOptionBuilder(PCPP_TCPOPT_TIMESTAMP, NULL, PCPP_TCPOLEN_TIMESTAMP-2), TCPOPT_MSS);
+	PACKETPP_ASSERT(tsOption.isNotNull(), "Couldn't add timestamp option");
+	tsOption.setValue<uint32_t>(htonl(197364));
+	tsOption.setValue<uint32_t>(0, 4);
 	PACKETPP_ASSERT(tcpLayer.getHeaderLen() == 36, "Header len isn't 36 after timestamp addition")
 
-	TcpOptionData* winScaleOption = tcpLayer.addTcpOption(PCPP_TCPOPT_WINDOW, PCPP_TCPOLEN_WINDOW, NULL);
-	PACKETPP_ASSERT(winScaleOption != NULL, "Couldn't add Window Scale option");
-	winScaleOption->setValue<uint8_t>(4);
+	TcpOption winScaleOption = tcpLayer.addTcpOption(TcpOptionBuilder(PCPP_TCPOPT_WINDOW, (uint8_t)4));
+	PACKETPP_ASSERT(winScaleOption.isNotNull(), "Couldn't add Window Scale option");
 	PACKETPP_ASSERT(tcpLayer.getHeaderLen() == 40, "Header len isn't 40 after Window scale addition");
 
-	mssOption = tcpLayer.getTcpOptionData(TCPOPT_MSS);
-	PACKETPP_ASSERT(tcpLayer.addTcpOptionAfter(TCPOPT_SACK_PERM, PCPP_TCPOLEN_SACK_PERM, NULL, mssOption) != NULL, "Couldn't add SACK PERM option");
-	PACKETPP_ASSERT(tcpLayer.getHeaderLen() == 40, "Header len isn't 28 after SACK PERM addition")
+	PACKETPP_ASSERT(tcpLayer.addTcpOptionAfter(TcpOptionBuilder(TCPOPT_SACK_PERM, NULL, 0), TCPOPT_MSS).isNotNull(), "Couldn't add SACK PERM option");
+	PACKETPP_ASSERT(tcpLayer.getHeaderLen() == 40, "Header len isn't 40 after SACK PERM addition")
 
-	PACKETPP_ASSERT(tcpLayer.getTcpOptionsCount() == 5, "TCP option count isn't 5");
+	PACKETPP_ASSERT(tcpLayer.getTcpOptionCount() == 5, "TCP option count isn't 5");
 
 	Packet tcpPacket(1);
 	tcpPacket.addLayer(&ethLayer);
@@ -1206,33 +1637,33 @@ PACKETPP_TEST(TcpPacketCreation2)
 	PACKETPP_ASSERT(memcmp(tcpPacket.getRawPacket()->getRawData(), buffer, bufferLength) == 0, "Raw packet data is different than expected");
 
 
-	mssOption = tcpLayer.getTcpOptionData(TCPOPT_MSS);
-	int tcpQsValue = htonl(9999);
-	PACKETPP_ASSERT(tcpLayer.addTcpOptionAfter(TCPOPT_QS, PCPP_TCPOLEN_QS, (uint8_t*)&tcpQsValue, mssOption) != NULL, "Cannot add QS option");
-	int tcpSnackValue = htonl(1000);
-	PACKETPP_ASSERT(tcpLayer.addTcpOption(TCPOPT_SNACK, PCPP_TCPOLEN_SNACK, (uint8_t*)&tcpSnackValue) != NULL, "Cannot add SNACK option");
-	tsOption = tcpLayer.getTcpOptionData(PCPP_TCPOPT_TIMESTAMP);
-	PACKETPP_ASSERT(tcpLayer.addTcpOptionAfter(PCPP_TCPOPT_NOP, PCPP_TCPOLEN_NOP, NULL, tsOption) != NULL, "Cannot add 2nd NOP option");
+	TcpOption qsOption = tcpLayer.addTcpOptionAfter(TcpOptionBuilder(TCPOPT_QS, NULL, PCPP_TCPOLEN_QS), TCPOPT_MSS);
+	PACKETPP_ASSERT(qsOption.isNotNull(), "Cannot add QS option");
+	PACKETPP_ASSERT(qsOption.setValue(htonl(9999)), "Cannot set QS value of 9999");
+	PACKETPP_ASSERT(tcpLayer.addTcpOption(TcpOptionBuilder(TCPOPT_SNACK, (uint32_t)htonl(1000))).isNotNull(), "Cannot add SNACK option");
+	PACKETPP_ASSERT(tcpLayer.addTcpOptionAfter(TcpOptionBuilder(TcpOptionBuilder::NOP), PCPP_TCPOPT_TIMESTAMP).isNotNull(), "Cannot add 2nd NOP option");
 
-	PACKETPP_ASSERT(tcpLayer.getTcpOptionsCount() == 8, "TCP option count isn't 8");
+	PACKETPP_ASSERT(tcpLayer.getTcpOptionCount() == 8, "TCP option count isn't 8");
 
 	PACKETPP_ASSERT(tcpLayer.removeTcpOption(TCPOPT_QS) == true, "Cannot remove QS option");
-	PACKETPP_ASSERT(tcpLayer.getTcpOptionsCount() == 7, "TCP option count isn't 7");
+	PACKETPP_ASSERT(tcpLayer.getTcpOptionCount() == 7, "TCP option count isn't 7");
 	PACKETPP_ASSERT(tcpLayer.removeTcpOption(TCPOPT_SNACK) == true, "Cannot remove SNACK option");
 	PACKETPP_ASSERT(tcpLayer.removeTcpOption(PCPP_TCPOPT_NOP) == true, "Cannot remove NOP option");
-	PACKETPP_ASSERT(tcpLayer.getTcpOptionsCount() == 5, "TCP option count isn't 5 again");
+	PACKETPP_ASSERT(tcpLayer.getTcpOptionCount() == 5, "TCP option count isn't 5 again");
 
 	PACKETPP_ASSERT(memcmp(tcpPacket.getRawPacket()->getRawData(), buffer, bufferLength) == 0, "Raw packet data is different than expected");
 
 	delete [] buffer;
 
 	PACKETPP_ASSERT(tcpLayer.removeAllTcpOptions() == true, "Couldn't remove all TCP options");
-	PACKETPP_ASSERT(tcpLayer.getTcpOptionsCount() == 0, "TCP option count isn't zero after removing all of them");
-	PACKETPP_ASSERT(tcpLayer.getFirstTcpOptionData() == NULL, "Found TCP option after removing all of them");
+	PACKETPP_ASSERT(tcpLayer.getTcpOptionCount() == 0, "TCP option count isn't zero after removing all of them");
+	PACKETPP_ASSERT(tcpLayer.getFirstTcpOption().isNull(), "Found TCP option after removing all of them");
 	PACKETPP_ASSERT(tcpLayer.getHeaderLen() == 20, "Header len isn't 20 after removing all TCP options");
-	PACKETPP_ASSERT(tcpLayer.getTcpOptionData(PCPP_TCPOPT_TIMESTAMP) == NULL, "Found TS option after removing all of TCP options");
+	PACKETPP_ASSERT(tcpLayer.getTcpOption(PCPP_TCPOPT_TIMESTAMP).isNull(), "Found TS option after removing all of TCP options");
 
-	PACKETPP_ASSERT(tcpLayer.addTcpOption(TCPOPT_SNACK, PCPP_TCPOLEN_SNACK, (uint8_t*)&tcpSnackValue) != NULL, "Cannot add SNACK option again");
+	TcpOption tcpSnackOption = tcpLayer.addTcpOption(TcpOptionBuilder(TCPOPT_SNACK, NULL, PCPP_TCPOLEN_SNACK));
+	PACKETPP_ASSERT(tcpSnackOption.isNotNull(), "Cannot add SNACK option again");
+	PACKETPP_ASSERT(tcpSnackOption.setValue(htonl(1000)), "Cannot set SNACK option value");
 
 	PACKETPP_TEST_PASSED;
 }
@@ -1390,8 +1821,7 @@ PACKETPP_TEST(RemoveLayerTest)
 	// a. Remove layer from the middle
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	IPv4Layer* ipLayer = tcpPacket.getLayerOfType<IPv4Layer>();
-	PACKETPP_ASSERT(tcpPacket.removeLayer(ipLayer), "Remove IPv4 layer failed");
+	PACKETPP_ASSERT(tcpPacket.removeLayer(IPv4), "Remove IPv4 layer failed");
 	PACKETPP_ASSERT(tcpPacket.isPacketOfType(IPv4) == false, "Packet is still of type IPv4");
 	PACKETPP_ASSERT(tcpPacket.isPacketOfType(Ethernet) == true, "Packet isn't of type Ethernet");
 	PACKETPP_ASSERT(tcpPacket.getLayerOfType<IPv4Layer>() == NULL, "Can still retrieve IPv4 layer");
@@ -1406,7 +1836,7 @@ PACKETPP_TEST(RemoveLayerTest)
 	// b. Remove first layer
 	// ~~~~~~~~~~~~~~~~~~~~~
 
-	PACKETPP_ASSERT(tcpPacket.removeLayer(tcpPacket.getFirstLayer()), "Remove first layer failed");
+	PACKETPP_ASSERT(tcpPacket.removeFirstLayer(), "Remove first layer failed");
 	PACKETPP_ASSERT(tcpPacket.isPacketOfType(IPv4) == false, "Packet is still of type IPv4");
 	PACKETPP_ASSERT(tcpPacket.isPacketOfType(Ethernet) == false, "Packet is still of type Ethernet");
 	PACKETPP_ASSERT(tcpPacket.getFirstLayer()->getProtocol() == TCP, "First layer isn't of type TCP");
@@ -1420,12 +1850,42 @@ PACKETPP_TEST(RemoveLayerTest)
 
 	// c. Remove last layer
 	// ~~~~~~~~~~~~~~~~~~~~
-	PACKETPP_ASSERT(tcpPacket.removeLayer(tcpPacket.getLastLayer()), "Remove last layer failed");
+	PACKETPP_ASSERT(tcpPacket.removeLastLayer(), "Remove last layer failed");
 	PACKETPP_ASSERT(tcpPacket.isPacketOfType(IPv4) == false, "Packet is still of type IPv4");
 	PACKETPP_ASSERT(tcpPacket.isPacketOfType(Ethernet) == false, "Packet is still of type Ethernet");
 	PACKETPP_ASSERT(tcpPacket.getFirstLayer() == tcpPacket.getLastLayer(), "More than 1 layer still in packet");
 	PACKETPP_ASSERT(tcpPacket.getFirstLayer()->getProtocol() == TCP, "TCP layer was accidently removed from packet");
 	PACKETPP_ASSERT(tcpPacket.getRawPacket()->getRawDataLen() == 20, "Data length != 20, it's %d", tcpPacket.getRawPacket()->getRawDataLen());
+
+	// d. Remove a second layer of the same type
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/Vxlan1.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file");
+
+	gettimeofday(&time, NULL);
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true);
+
+	Packet vxlanPacket(&rawPacket2);
+	PACKETPP_ASSERT(vxlanPacket.isPacketOfType(Ethernet) == true, "Vxlan packet is not of type Eth");
+	PACKETPP_ASSERT(vxlanPacket.isPacketOfType(IPv4) == true, "Vxlan packet is not of type IPv4");
+	PACKETPP_ASSERT(vxlanPacket.removeLayer(Ethernet, 1) == true, "Couldn't remove 2nd Eth layer from Vxlan packet");
+	PACKETPP_ASSERT(vxlanPacket.removeLayer(IPv4, 1) == true, "Couldn't remove 2nd IPv4 layer from Vxlan packet");
+	PACKETPP_ASSERT(vxlanPacket.removeLayer(ICMP) == true, "Couldn't remove ICMP layer from Vxlan packet");
+	vxlanPacket.computeCalculateFields();
+	PACKETPP_ASSERT(vxlanPacket.isPacketOfType(Ethernet) == true, "Vxlan packet is not of type Eth after remove");
+	PACKETPP_ASSERT(vxlanPacket.isPacketOfType(IPv4) == true, "Vxlan packet is not of type IPv4 after remove");
+	PACKETPP_ASSERT(vxlanPacket.isPacketOfType(VXLAN) == true, "Vxlan packet is not of type VXLAN after remove");
+	PACKETPP_ASSERT(vxlanPacket.getRawPacket()->getRawDataLen() == 50, "Vxlan packet after removing layers - length isn't 50");
+
+	// e. Remove a layer that doesn't exist
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	LoggerPP::getInstance().supressErrors();
+	PACKETPP_ASSERT(vxlanPacket.removeLayer(HTTPRequest) == false, "Managed to remove an HTTPRequest layer that doesn't exist from Vxlan packet");
+	PACKETPP_ASSERT(vxlanPacket.removeLayer(Ethernet, 1) == false, "Managed to remove a 2nd Eth layer that was already removed from Vxlan packet");
+	LoggerPP::getInstance().enableErrors();
 
 //	printf("\n\n\n");
 //	for(int i = 0; i<tcpPacket.getRawPacket()->getRawDataLen(); i++)
@@ -1460,7 +1920,7 @@ PACKETPP_TEST(RemoveLayerTest)
 	// a. remove first layer
 	// ~~~~~~~~~~~~~~~~~~~~~
 
-	PACKETPP_ASSERT(testPacket.removeLayer(&ethLayer), "Couldn't remove Eth layer");
+	PACKETPP_ASSERT(testPacket.removeLayer(Ethernet), "Couldn't remove Eth layer");
 	PACKETPP_ASSERT(testPacket.getFirstLayer() == &ip4Layer, "IPv4 layer isn't the first layer");
 	PACKETPP_ASSERT(testPacket.getFirstLayer()->getNextLayer()->getNextLayer() == NULL, "More than 2 layers remain in packet");
 	PACKETPP_ASSERT(testPacket.isPacketOfType(Ethernet) == false, "Packet is wrongly of type Ethernet");
@@ -1476,7 +1936,7 @@ PACKETPP_TEST(RemoveLayerTest)
 	// b. remove last layer
 	// ~~~~~~~~~~~~~~~~~~~~
 
-	PACKETPP_ASSERT(testPacket.removeLayer(&payloadLayer), "Couldn't remove Payload layer");
+	PACKETPP_ASSERT(testPacket.removeLayer(GenericPayload), "Couldn't remove Payload layer");
 	PACKETPP_ASSERT(testPacket.getFirstLayer() == &ip4Layer, "IPv4 layer isn't the first layer");
 	PACKETPP_ASSERT(testPacket.getFirstLayer()->getNextLayer() == NULL, "More than 1 layer remain in packet");
 	PACKETPP_ASSERT(testPacket.isPacketOfType(IPv4) == true, "Packet isn't of type IPv4");
@@ -1507,12 +1967,13 @@ PACKETPP_TEST(RemoveLayerTest)
 
 	// d. remove the remaining layers (packet remains empty!)
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	PACKETPP_ASSERT(testPacket.removeLayer(&ip4Layer), "Couldn't remove IPv4 layer");
+
+	PACKETPP_ASSERT(testPacket.removeLayer(IPv4), "Couldn't remove IPv4 layer");
 	PACKETPP_ASSERT(testPacket.getFirstLayer() == &vlanLayer, "VLAN isn't the first layer");
 	PACKETPP_ASSERT(testPacket.isPacketOfType(IPv4) == false, "Packet is wrongly of type IPv4");
 	PACKETPP_ASSERT(testPacket.isPacketOfType(VLAN) == true, "Packet isn't of type VLAN");
 	PACKETPP_ASSERT(testPacket.getRawPacket()->getRawDataLen() == 4, "Raw packet length != 4, it's %d", testPacket.getRawPacket()->getRawDataLen());
-	PACKETPP_ASSERT(testPacket.removeLayer(&vlanLayer), "Couldn't remove VLAN layer");
+	PACKETPP_ASSERT(testPacket.removeLayer(VLAN), "Couldn't remove VLAN layer");
 	PACKETPP_ASSERT(testPacket.isPacketOfType(VLAN) == false, "Packet is wrongly of type VLAN");
 	PACKETPP_ASSERT(testPacket.getRawPacket()->getRawDataLen() == 0, "Raw packet length != 0, it's %d", testPacket.getRawPacket()->getRawDataLen());
 
@@ -1521,6 +1982,64 @@ PACKETPP_TEST(RemoveLayerTest)
 //		printf("0x%2X ", testPacket.getRawPacket()->getRawData()[i]);
 //	printf("\n\n\n");
 
+	// Detach layer and add it to another packet
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	// a. create a layer nad a packet and move it to another packet
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	EthLayer eth(MacAddress("0a:00:27:00:00:15"), MacAddress("0a:00:27:00:00:16"));
+	Packet packet1, packet2;
+	PACKETPP_ASSERT(packet1.addLayer(&eth) == true, "Step e: cannot add eth layer");
+	PACKETPP_ASSERT(packet1.getRawPacket()->getRawDataLen() == 14, "Step e: packet1 len before removal isn't 14");
+	PACKETPP_ASSERT(packet1.detachLayer(&eth) == true, "Step e: cannot remove layer");
+	PACKETPP_ASSERT(packet1.getRawPacket()->getRawDataLen() == 0, "Step e: packet1 len after removal isn't 0");
+	PACKETPP_ASSERT(packet2.getRawPacket()->getRawDataLen() == 0, "Step e: packet2 len before add isn't 0");
+	PACKETPP_ASSERT(packet2.addLayer(&eth) == true, "Step e: cannot add eth layer to packet2");
+	PACKETPP_ASSERT(packet2.getRawPacket()->getRawDataLen() == 14, "Step e: packet2 len after add isn't 14");
+
+	// b. parse a packet, detach a layer and move it to another packet
+	// c. detach a second instance of the the same protocol
+	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	int buffer3Length = 0;
+	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/Vxlan1.dat", buffer3Length);
+	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file");
+
+	gettimeofday(&time, NULL);
+	RawPacket rawPacket3((const uint8_t*)buffer3, buffer3Length, time, true);
+
+	Packet vxlanPacketOrig(&rawPacket3);
+	EthLayer* vxlanEthLayer = (EthLayer*)vxlanPacketOrig.detachLayer(Ethernet, 1);
+	IcmpLayer* vxlanIcmpLayer = (IcmpLayer*)vxlanPacketOrig.detachLayer(ICMP);
+	IPv4Layer* vxlanIP4Layer = (IPv4Layer*)vxlanPacketOrig.detachLayer(IPv4, 1);
+	vxlanPacketOrig.computeCalculateFields();
+	PACKETPP_ASSERT(vxlanEthLayer != NULL, "Eth layer detached from Vxlan packet is NULL");
+	PACKETPP_ASSERT(vxlanIcmpLayer != NULL, "ICMP layer detached from Vxlan packet is NULL");
+	PACKETPP_ASSERT(vxlanIP4Layer != NULL, "IPv4 layer detached from Vxlan packet is NULL");
+	PACKETPP_ASSERT(vxlanEthLayer->isAllocatedToPacket() == false, "Eth layer detached from Vxlan packet is still allocated to a packet");
+	PACKETPP_ASSERT(vxlanIcmpLayer->isAllocatedToPacket() == false, "ICMP layer detached from Vxlan packet is still allocated to a packet");
+	PACKETPP_ASSERT(vxlanIP4Layer->isAllocatedToPacket() == false, "IPv4 layer detached from Vxlan packet is still allocated to a packet");
+	PACKETPP_ASSERT(vxlanPacketOrig.getLayerOfType(Ethernet) != NULL, "Cannot find first Eth layer after detaching the second one from the Vxlan packet");
+	PACKETPP_ASSERT(vxlanPacketOrig.getLayerOfType(Ethernet, 1) == NULL, "Found a second Eth layer after detaching it from the Vxlan packet");
+	PACKETPP_ASSERT(vxlanPacketOrig.getLayerOfType(IPv4) != NULL, "Cannot find first IPv4 layer after detaching the second one from the Vxlan packet");
+	PACKETPP_ASSERT(vxlanPacketOrig.getLayerOfType(IPv4, 1) == NULL, "Found a second IPv4 layer after detaching it from the Vxlan packet");
+	PACKETPP_ASSERT(vxlanPacketOrig.getLayerOfType(ICMP) == NULL, "Found an ICMP layer after detaching it from the Vxlan packet");
+
+	Packet packetWithoutTunnel;
+	PACKETPP_ASSERT(packetWithoutTunnel.addLayer(vxlanEthLayer) == true, "Couldn't add detached Eth layer to new packet");
+	PACKETPP_ASSERT(packetWithoutTunnel.addLayer(vxlanIP4Layer) == true, "Couldn't add detached IPv4 layer to new packet");
+	PACKETPP_ASSERT(packetWithoutTunnel.addLayer(vxlanIcmpLayer) == true, "Couldn't add detached ICMP layer to new packet");
+	packetWithoutTunnel.computeCalculateFields();
+
+	int buffer4Length = 0;
+	uint8_t* buffer4 = readFileIntoBuffer("PacketExamples/IcmpWithoutTunnel.dat", buffer4Length);
+	PACKETPP_ASSERT(!(buffer4 == NULL), "cannot read file");
+
+	PACKETPP_ASSERT(buffer4Length == packetWithoutTunnel.getRawPacket()->getRawDataLen(), "Generated ICMP packet with tunnel len (%d) is different than read packet len (%d)", packetWithoutTunnel.getRawPacket()->getRawDataLen(), buffer4Length);
+	PACKETPP_ASSERT(memcmp(packetWithoutTunnel.getRawPacket()->getRawData(), buffer4, buffer4Length) == 0, "Generated ICMP packet with tunnel data is different than expected");
+
+	delete [] buffer4;
 
 	PACKETPP_TEST_PASSED;
 }
@@ -1548,7 +2067,7 @@ PACKETPP_TEST(HttpRequestLayerParsingTest)
 	PACKETPP_ASSERT(requestLayer->getFirstLine()->getVersion() == OneDotOne, "Request version isn't HTTP/1.1");
 	PACKETPP_ASSERT(requestLayer->getFirstLine()->getUri() == "/home/0,7340,L-8,00.html", "Parsed URI is different than expected");
 
-	HttpField* userAgent = requestLayer->getFieldByName(PCPP_HTTP_USER_AGENT_FIELD);
+	HeaderField* userAgent = requestLayer->getFieldByName(PCPP_HTTP_USER_AGENT_FIELD);
 	PACKETPP_ASSERT(userAgent != NULL, "Couldn't retrieve user-agent field");
 	PACKETPP_ASSERT(userAgent->getFieldValue().find("Safari/537.36") != std::string::npos, "User-agent field doesn't contain 'Safari/537.36'");
 
@@ -1584,10 +2103,10 @@ PACKETPP_TEST(HttpRequestLayerCreationTest)
 	HttpRequestLayer httpLayer(HttpRequestLayer::HttpOPTIONS, "/home/0,7340,L-8,00", OneDotOne);
 	PACKETPP_ASSERT(httpLayer.addField(PCPP_HTTP_ACCEPT_FIELD, "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8") != NULL, "Couldn't add ACCEPT field");
 	PACKETPP_ASSERT(httpLayer.addField("Dummy-Field", "some value") != NULL, "Couldn't add Dummy-Field field");
-	HttpField* hostField = httpLayer.insertField(NULL, PCPP_HTTP_HOST_FIELD, "www.ynet-ynet.co.il");
+	HeaderField* hostField = httpLayer.insertField(NULL, PCPP_HTTP_HOST_FIELD, "www.ynet-ynet.co.il");
 	PACKETPP_ASSERT(hostField != NULL, "Couldn't insert HOST field");
 	PACKETPP_ASSERT(httpLayer.insertField(hostField, PCPP_HTTP_CONNECTION_FIELD, "keep-alive") != NULL, "Couldn't add CONNECTION field");
-	HttpField* userAgentField = httpLayer.addField(PCPP_HTTP_USER_AGENT_FIELD, "(Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/38.0.2125.104 Safari/537.36");
+	HeaderField* userAgentField = httpLayer.addField(PCPP_HTTP_USER_AGENT_FIELD, "(Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/38.0.2125.104 Safari/537.36");
 	httpLayer.getFirstLine()->setUri("bla.php");
 	PACKETPP_ASSERT(userAgentField != NULL, "Couldn't add USER-AGENT field");
 	PACKETPP_ASSERT(httpLayer.addField(PCPP_HTTP_ACCEPT_LANGUAGE_FIELD, "en-US,en;q=0.8") != NULL, "Couldn't add ACCEPT-LANGUAGE field");
@@ -1636,7 +2155,6 @@ PACKETPP_TEST(HttpRequestLayerCreationTest)
 //	printf("\n\n\n");
 
 	PACKETPP_ASSERT(bufferLength == httpPacket.getRawPacket()->getRawDataLen(), "Raw packet length (%d) != expected length (%d)", httpPacket.getRawPacket()->getRawDataLen(), bufferLength);
-
 	PACKETPP_ASSERT(memcmp(buffer, httpPacket.getRawPacket()->getRawData(), bufferLength) == 0, "Constructed packet data is different than expected");
 
 	PACKETPP_TEST_PASSED;
@@ -1665,10 +2183,10 @@ PACKETPP_TEST(HttpRequestLayerEditTest)
 
 	HttpRequestLayer* httpReqLayer = httpRequest.getLayerOfType<HttpRequestLayer>();
 	PACKETPP_ASSERT(httpReqLayer->getFirstLine()->setUri("/Common/Api/Video/CmmLightboxPlayerJs/0,14153,061014181713,00.js") == true, "Couldn't change URI");
-	HttpField* acceptField = httpReqLayer->getFieldByName(PCPP_HTTP_ACCEPT_FIELD);
+	HeaderField* acceptField = httpReqLayer->getFieldByName(PCPP_HTTP_ACCEPT_FIELD);
 	PACKETPP_ASSERT(acceptField != NULL, "Cannot find ACCEPT field");
 	acceptField->setFieldValue("*/*");
-	HttpField* userAgentField = httpReqLayer->getFieldByName(PCPP_HTTP_USER_AGENT_FIELD);
+	HeaderField* userAgentField = httpReqLayer->getFieldByName(PCPP_HTTP_USER_AGENT_FIELD);
 	PACKETPP_ASSERT(userAgentField != NULL, "Cannot find USER-AGENT field");
 	httpReqLayer->insertField(userAgentField, PCPP_HTTP_REFERER_FIELD, "http://www.ynet.co.il/home/0,7340,L-8,00.html");
 
@@ -1709,12 +2227,12 @@ PACKETPP_TEST(HttpResponseLayerParsingTest)
 	PACKETPP_ASSERT(responseLayer->getFirstLine()->getStatusCode() == HttpResponseLayer::Http200OK, "Response status code isn't 200 OK");
 	PACKETPP_ASSERT(responseLayer->getFirstLine()->getVersion() == OneDotOne, "Response version isn't HTTP/1.1");
 
-	HttpField* contentLengthField = responseLayer->getFieldByName(PCPP_HTTP_CONTENT_LENGTH_FIELD);
+	HeaderField* contentLengthField = responseLayer->getFieldByName(PCPP_HTTP_CONTENT_LENGTH_FIELD);
 	PACKETPP_ASSERT(contentLengthField != NULL, "Couldn't retrieve content-length field");
 	int contentLength = atoi(contentLengthField->getFieldValue().c_str());
 	PACKETPP_ASSERT(contentLength == 1616, "Content length != 1616, it's %d", contentLength);
 
-	HttpField* contentTypeField = responseLayer->getFieldByName(PCPP_HTTP_CONTENT_TYPE_FIELD);
+	HeaderField* contentTypeField = responseLayer->getFieldByName(PCPP_HTTP_CONTENT_TYPE_FIELD);
 	PACKETPP_ASSERT(contentTypeField != NULL, "Couldn't retrieve content-type field");
 	PACKETPP_ASSERT(contentTypeField->getFieldValue() == "application/x-javascript", "Content type isn't 'application/x-javascript'");
 
@@ -1781,7 +2299,7 @@ PACKETPP_TEST(HttpResponseLayerCreationTest)
 
 	httpPacket.computeCalculateFields();
 
-	PACKETPP_ASSERT(httpResponse.getHeaderLen() == 382, "HTTP header length is different than expected. Expected: %d; Actual: %d", 382, httpResponse.getHeaderLen());
+	PACKETPP_ASSERT(httpResponse.getHeaderLen() == 382, "HTTP header length is different than expected. Expected: %d; Actual: %d", 382, (int)httpResponse.getHeaderLen());
 
 	PACKETPP_ASSERT(memcmp(buffer, httpPacket.getRawPacket()->getRawData(), ethLayer.getHeaderLen()+ip4Layer.getHeaderLen()+tcpLayer.getHeaderLen()+httpResponse.getHeaderLen()) == 0, "Constructed packet data is different than expected");
 
@@ -1848,7 +2366,7 @@ PACKETPP_TEST(PPPoESessionLayerParsingTest)
 	PACKETPP_ASSERT(pppoeSessionLayer->getPrevLayer() != NULL, "PPPoESession layer is the first layer");
 	PACKETPP_ASSERT(pppoeSessionLayer->getPrevLayer()->getProtocol() == Ethernet, "PPPoESession prev layer isn't Eth");
 	PACKETPP_ASSERT(pppoeSessionLayer->getNextLayer() != NULL, "PPPoESession layer is the last layer");
-	PACKETPP_ASSERT(pppoeSessionLayer->getNextLayer()->getProtocol() == pcpp::Unknown, "PPPoESession layer next layer isn't PayloadLayer");
+	PACKETPP_ASSERT(pppoeSessionLayer->getNextLayer()->getProtocol() == pcpp::GenericPayload, "PPPoESession layer next layer isn't PayloadLayer");
 
 	PACKETPP_ASSERT(pppoeSessionLayer->getPPPoEHeader()->code == PPPoELayer::PPPOE_CODE_SESSION, "PPPoE code isn't PPPOE_CODE_SESSION");
 	PACKETPP_ASSERT(pppoeSessionLayer->getPPPoEHeader()->version == 1, "PPPoE version isn't 1");
@@ -2098,7 +2616,8 @@ PACKETPP_TEST(DnsLayerParsingTest)
 	PACKETPP_ASSERT(firstAuthority->getTTL() == 120, "First authority TTL != 120");
 	PACKETPP_ASSERT(firstAuthority->getName() == "Yaels-iPhone.local", "First authority name isn't 'Yaels-iPhone.local'");
 	PACKETPP_ASSERT(firstAuthority->getDataLength() == 4, "First authority data size != 4");
-	PACKETPP_ASSERT(firstAuthority->getDataAsString() == "10.0.0.2", "First authority data != 10.0.0.2");
+	PACKETPP_ASSERT(firstAuthority->getData()->toString() == "10.0.0.2", "First authority data != string 10.0.0.2");
+	PACKETPP_ASSERT(firstAuthority->getData().castAs<IPv4DnsResourceData>()->getIpAddress() == IPv4Address(std::string("10.0.0.2")), "First authority data != IPv4Address 10.0.0.2");
 	PACKETPP_ASSERT(firstAuthority->getSize() == 16, "First authority total size != 16");
 
 	DnsResource* secondAuthority = dnsLayer->getNextAuthority(firstAuthority);
@@ -2108,7 +2627,8 @@ PACKETPP_TEST(DnsLayerParsingTest)
 	PACKETPP_ASSERT(secondAuthority->getTTL() == 120, "Second authority TTL != 120");
 	PACKETPP_ASSERT(secondAuthority->getName() == "Yaels-iPhone.local", "Second authority name isn't 'Yaels-iPhone.local'");
 	PACKETPP_ASSERT(secondAuthority->getDataLength() == 16, "Second authority data size != 16");
-	PACKETPP_ASSERT(secondAuthority->getDataAsString() == "fe80::5a1f:aaff:fe4f:3f9d", "Second authority data != fe80::5a1f:aaff:fe4f:3f9d");
+	PACKETPP_ASSERT(secondAuthority->getData()->toString() == "fe80::5a1f:aaff:fe4f:3f9d", "Second authority data != string fe80::5a1f:aaff:fe4f:3f9d");
+	PACKETPP_ASSERT(secondAuthority->getData().castAs<IPv6DnsResourceData>()->getIpAddress() == IPv6Address(std::string("fe80::5a1f:aaff:fe4f:3f9d")), "Second authority data != IPv6Address fe80::5a1f:aaff:fe4f:3f9d");
 	PACKETPP_ASSERT(secondAuthority->getSize() == 28, "Second authority total size != 28");
 
 	DnsResource* thirdAuthority = dnsLayer->getNextAuthority(secondAuthority);
@@ -2124,7 +2644,7 @@ PACKETPP_TEST(DnsLayerParsingTest)
 	PACKETPP_ASSERT(additionalRecord->getTTL() == 0x1194, "Additional record 'TTL' != 0x1194, it's 0x%X", additionalRecord->getTTL());
 	PACKETPP_ASSERT(additionalRecord->getName() == "", "Additional record name isn't empty");
 	PACKETPP_ASSERT(additionalRecord->getDataLength() == 12, "Second authority data size != 12");
-	PACKETPP_ASSERT(additionalRecord->getDataAsString() == "0x0004000800df581faa4f3f9d", "Additional record unexpected data: %s", additionalRecord->getDataAsString().c_str());
+	PACKETPP_ASSERT(additionalRecord->getData()->toString() == "0004000800df581faa4f3f9d", "Additional record unexpected data: %s", additionalRecord->getData()->toString().c_str());
 	PACKETPP_ASSERT(additionalRecord->getSize() == 23, "Second authority total size != 23");
 	PACKETPP_ASSERT(dnsLayer->getNextAdditionalRecord(additionalRecord) == NULL, "Found imaginary additional record");
 	PACKETPP_ASSERT(dnsLayer->getAdditionalRecord("", true) == additionalRecord, "Couldn't find additional record by (empty) name");
@@ -2160,12 +2680,13 @@ PACKETPP_TEST(DnsLayerParsingTest)
 	PACKETPP_ASSERT(curAnswer->getTTL() == 57008, "First answer TTL != 57008");
 	PACKETPP_ASSERT(curAnswer->getName() == "www.google-analytics.com", "First answer name isn't 'www.google-analytics.com'");
 	PACKETPP_ASSERT(curAnswer->getDataLength() == 32, "First answer data size != 32");
-	PACKETPP_ASSERT(curAnswer->getDataAsString() == "www-google-analytics.l.google.com", "First answer data != 'www-google-analytics.l.google.com'. It's '%s'", curAnswer->getDataAsString().c_str());
+	PACKETPP_ASSERT(curAnswer->getData()->toString() == "www-google-analytics.l.google.com", "First answer data != 'www-google-analytics.l.google.com'. It's '%s'", curAnswer->getData()->toString().c_str());
 	PACKETPP_ASSERT(curAnswer->getSize() == 44, "First authority total size != 44");
 
 	curAnswer = dnsLayer->getNextAnswer(curAnswer);
 	int answerCount = 2;
-	string addrPrefix = "212.199.219.";
+	IPv4Address subnet(std::string("212.199.219.0"));
+	std::string subnetMask = "255.255.255.0";
 	while (curAnswer != NULL)
 	{
 		PACKETPP_ASSERT(curAnswer->getDnsType() == DNS_TYPE_A, "Answer #%d type isn't A", answerCount);
@@ -2173,7 +2694,7 @@ PACKETPP_TEST(DnsLayerParsingTest)
 		PACKETPP_ASSERT(curAnswer->getTTL() == 117, "Answer #%d TTL != 117", answerCount);
 		PACKETPP_ASSERT(curAnswer->getName() == "www-google-analytics.L.google.com", "Answer #%d name isn't 'www-google-analytics.L.google.com'", answerCount);
 		PACKETPP_ASSERT(curAnswer->getDataLength() == 4, "Answer #%d data size != 4", answerCount);
-		PACKETPP_ASSERT(curAnswer->getDataAsString().substr(0, addrPrefix.size()) == addrPrefix, "Answer #%d data != '212.199.219.X'", answerCount);
+		PACKETPP_ASSERT(curAnswer->getData().castAs<IPv4DnsResourceData>()->getIpAddress().matchSubnet(subnet, subnetMask) == true, "Answer #%d data != '212.199.219.X'", answerCount);
 
 		curAnswer = dnsLayer->getNextAnswer(curAnswer);
 		answerCount++;
@@ -2185,6 +2706,8 @@ PACKETPP_TEST(DnsLayerParsingTest)
 	PACKETPP_ASSERT(dnsLayer->getAnswer("www-google-analytics.L.google.com", true) == dnsLayer->getNextAnswer(dnsLayer->getFirstAnswer()), "Couldn't find answer by name 2");
 
 	PACKETPP_ASSERT(dnsLayer->toString() == "DNS query response, ID: 11629; queries: 1, answers: 17, authorities: 0, additional record: 0", "Dns1 toString gave the wrong output");
+
+
 
 	int buffer3Length = 0;
 	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/Dns2.dat", buffer3Length);
@@ -2201,6 +2724,42 @@ PACKETPP_TEST(DnsLayerParsingTest)
 	PACKETPP_ASSERT(queryByName->getDnsClass() == DNS_CLASS_IN_QU, "Query class != DNS_CLASS_IN_QU");
 
 	PACKETPP_ASSERT(dnsLayer->toString() == "DNS query, ID: 0; queries: 2, answers: 0, authorities: 2, additional record: 1", "Dns2 toString gave the wrong output");
+
+
+
+	int buffer4Length = 0;
+	uint8_t* buffer4 = readFileIntoBuffer("PacketExamples/Dns4.dat", buffer4Length);
+	PACKETPP_ASSERT(!(buffer4 == NULL), "cannot read file Dns4.dat");
+
+	RawPacket rawPacket4((const uint8_t*)buffer4, buffer4Length, time, true);
+
+	Packet dnsPacket4(&rawPacket4);
+	dnsLayer = dnsPacket4.getLayerOfType<DnsLayer>();
+	PACKETPP_ASSERT(dnsLayer != NULL, "Couldn't find DnsLayer");
+
+	curAnswer = dnsLayer->getFirstAnswer();
+	PACKETPP_ASSERT(curAnswer != NULL, "Couldn't find first answer");
+	PACKETPP_ASSERT(curAnswer->getDnsType() == DNS_TYPE_MX, "First answer type isn't MX");
+	PACKETPP_ASSERT(curAnswer->getDnsClass() == DNS_CLASS_IN, "First answer class isn't IN");
+	PACKETPP_ASSERT(curAnswer->getData()->toString() == "pref: 1; mx: mta5.am0.yahoodns.net", "First answer MX data string is not as expected");
+	PACKETPP_ASSERT(curAnswer->getData()->castAs<MxDnsResourceData>()->getMxData().preference == 1, "First answer MX data: preference is not 1");
+	PACKETPP_ASSERT(curAnswer->getData()->castAs<MxDnsResourceData>()->getMxData().mailExchange == "mta5.am0.yahoodns.net", "First answer MX data: mail exchange is not 'mta5.am0.yahoodns.net'");
+
+	curAnswer = dnsLayer->getNextAnswer(curAnswer);
+	PACKETPP_ASSERT(curAnswer != NULL, "Couldn't find second answer");
+	PACKETPP_ASSERT(curAnswer->getDnsType() == DNS_TYPE_MX, "Second answer type isn't MX");
+	PACKETPP_ASSERT(curAnswer->getDnsClass() == DNS_CLASS_IN, "Second answer class isn't IN");
+	PACKETPP_ASSERT(curAnswer->getData()->toString() == "pref: 1; mx: mta7.am0.yahoodns.net", "Second answer MX data string is not as expected");
+	PACKETPP_ASSERT(curAnswer->getData()->castAs<MxDnsResourceData>()->getMxData().preference == 1, "Second answer MX data: preference is not 1");
+	PACKETPP_ASSERT(curAnswer->getData()->castAs<MxDnsResourceData>()->getMxData().mailExchange == "mta7.am0.yahoodns.net", "Second answer MX data: mail exchange is not 'mta7.am0.yahoodns.net'");
+
+	curAnswer = dnsLayer->getNextAnswer(curAnswer);
+	PACKETPP_ASSERT(curAnswer != NULL, "Couldn't find third answer");
+	PACKETPP_ASSERT(curAnswer->getDnsType() == DNS_TYPE_MX, "Third answer type isn't MX");
+	PACKETPP_ASSERT(curAnswer->getDnsClass() == DNS_CLASS_IN, "Third answer class isn't IN");
+	PACKETPP_ASSERT(curAnswer->getData()->toString() == "pref: 1; mx: mta6.am0.yahoodns.net", "Third answer MX data string is not as expected");
+	PACKETPP_ASSERT(curAnswer->getData()->castAs<MxDnsResourceData>()->getMxData().preference == 1, "Third answer MX data: preference is not 1");
+	PACKETPP_ASSERT(curAnswer->getData()->castAs<MxDnsResourceData>()->getMxData().mailExchange == "mta6.am0.yahoodns.net", "Third answer MX data: mail exchange is not 'mta6.am0.yahoodns.net'");
 
 	PACKETPP_TEST_PASSED;
 }
@@ -2320,18 +2879,20 @@ PACKETPP_TEST(DnsLayerResourceCreationTest)
 	dns4Layer.getDnsHeader()->recursionDesired = 1;
 	dns4Layer.getDnsHeader()->recursionAvailable = 1;
 
-	DnsResource* firstAnswer = dns4Layer.addAnswer("assets.pinterest.com", DNS_TYPE_CNAME, DNS_CLASS_IN, 228, "assets.pinterest.com.cdngc.net");
+	StringDnsResourceData stringDnsData("assets.pinterest.com.cdngc.net");
+	DnsResource* firstAnswer = dns4Layer.addAnswer("assets.pinterest.com", DNS_TYPE_CNAME, DNS_CLASS_IN, 228, &stringDnsData);
 	PACKETPP_ASSERT(firstAnswer != NULL, "Couldn't add first answer");
 	PACKETPP_ASSERT(dns4Layer.getFirstAnswer() == firstAnswer, "Couldn't retrieve first answer from layer");
-	PACKETPP_ASSERT(firstAnswer->getDataAsString() == "assets.pinterest.com.cdngc.net", "Couldn't retrieve data for first answer");
+	PACKETPP_ASSERT(firstAnswer->getData()->toString() == "assets.pinterest.com.cdngc.net", "Couldn't retrieve data for first answer");
 
 	PACKETPP_ASSERT(dnsEdit4Packet.addLayer(&dns4Layer), "Add DnsLayer failed");
 
 	PACKETPP_ASSERT(dnsEdit4Packet.getLayerOfType<DnsLayer>()->getFirstAnswer() == firstAnswer, "Couldn't retrieve first answer from layer after adding layer to packet");
 
-	DnsResource* secondAnswer = dns4Layer.addAnswer("assets.pinterest.com.cdngc.net", DNS_TYPE_A, DNS_CLASS_IN, 3, "151.249.90.217");
+	IPv4DnsResourceData ipv4DnsData(std::string("151.249.90.217"));
+	DnsResource* secondAnswer = dns4Layer.addAnswer("assets.pinterest.com.cdngc.net", DNS_TYPE_A, DNS_CLASS_IN, 3, &ipv4DnsData);
 	PACKETPP_ASSERT(secondAnswer != NULL, "Couldn't add second answer");
-	PACKETPP_ASSERT(secondAnswer->getDataAsString() == "151.249.90.217", "Couldn't retrieve data for second answer");
+	PACKETPP_ASSERT(secondAnswer->getData()->castAs<IPv4DnsResourceData>()->getIpAddress() == ipv4DnsData.getIpAddress(), "Couldn't retrieve data for second answer");
 
 	DnsQuery* query = dns4Layer.addQuery("assets.pinterest.com", DNS_TYPE_A, DNS_CLASS_IN);
 	PACKETPP_ASSERT(query != NULL, "Couldn't add query");
@@ -2342,18 +2903,21 @@ PACKETPP_TEST(DnsLayerResourceCreationTest)
 	DnsResource* thirdAnswer = dns4Layer.addAnswer(secondAnswer);
 	PACKETPP_ASSERT(thirdAnswer != NULL, "Couldn't add third answer");
 	LoggerPP::getInstance().supressErrors();
-	PACKETPP_ASSERT(thirdAnswer->setData("256.249.90.238") == false, "Managed to set illegal IPv4 address in third answer");
+	ipv4DnsData = IPv4DnsResourceData(std::string("256.249.90.238"));
+	PACKETPP_ASSERT(thirdAnswer->setData(&ipv4DnsData) == false, "Managed to set illegal IPv4 address in third answer");
 	LoggerPP::getInstance().enableErrors();
-	PACKETPP_ASSERT(thirdAnswer->setData("151.249.90.238") == true, "Couldn't set data for third answer");
+	ipv4DnsData = IPv4DnsResourceData(std::string("151.249.90.238"));
+	PACKETPP_ASSERT(thirdAnswer->setData(&ipv4DnsData) == true, "Couldn't set data for third answer");
 
-	PACKETPP_ASSERT(dns4Layer.getAnswer("assets.pinterest.com.cdngc.net", true)->getDataAsString() == "151.249.90.217", "Couldn't retrieve data for second answer after adding third answer");
-	PACKETPP_ASSERT(dns4Layer.getNextAnswer(dns4Layer.getAnswer("assets.pinterest.com.cdngc.net", false))->getDataAsString() == "151.249.90.238", "Couldn't retrieve data for third answer after adding third answer");
+	PACKETPP_ASSERT(dns4Layer.getAnswer("assets.pinterest.com.cdngc.net", true)->getData()->toString() == "151.249.90.217", "Couldn't retrieve data for second answer after adding third answer");
+	PACKETPP_ASSERT(dns4Layer.getNextAnswer(dns4Layer.getAnswer("assets.pinterest.com.cdngc.net", false))->getData()->toString() == "151.249.90.238", "Couldn't retrieve data for third answer after adding third answer");
 
 	dnsEdit4Packet.computeCalculateFields();
 
 	PACKETPP_ASSERT(buffer4Length == dnsEdit4Packet.getRawPacket()->getRawDataLen(), "Generated packet len (%d) is different than read packet len (%d)", dnsEdit4Packet.getRawPacket()->getRawDataLen(), buffer4Length);
 
 	PACKETPP_ASSERT(memcmp(dnsEdit4Packet.getRawPacket()->getRawData(), buffer4, buffer4Length) == 0, "Raw packet data is different than expected DnsEdit4");
+
 
 
 
@@ -2379,7 +2943,8 @@ PACKETPP_TEST(DnsLayerResourceCreationTest)
 
 	DnsLayer dnsLayer6;
 
-	DnsResource* authority = dnsLayer6.addAuthority("Yaels-iPhone.local", DNS_TYPE_A, DNS_CLASS_IN, 120, "10.0.0.2");
+	ipv4DnsData = IPv4DnsResourceData(std::string("10.0.0.2"));
+	DnsResource* authority = dnsLayer6.addAuthority("Yaels-iPhone.local", DNS_TYPE_A, DNS_CLASS_IN, 120, &ipv4DnsData);
 	PACKETPP_ASSERT(authority != NULL, "Couldn't add first authority");
 
 	query = dnsLayer6.addQuery(query);
@@ -2389,32 +2954,37 @@ PACKETPP_TEST(DnsLayerResourceCreationTest)
 
 	PACKETPP_ASSERT(dnsEdit6Packet.addLayer(&dnsLayer6), "Couldn't set DNS layer for packet DnsEdit6");
 
-	PACKETPP_ASSERT(dnsLayer6.getAuthority("Yaels-iPhone.local", true)->getDataAsString() == "10.0.0.2", "Couldn't retrieve data from first authority");
+	PACKETPP_ASSERT(dnsLayer6.getAuthority("Yaels-iPhone.local", true)->getData()->toString() == "10.0.0.2", "Couldn't retrieve data from first authority");
 
 	authority = dnsLayer6.addAuthority(authority);
 	LoggerPP::getInstance().supressErrors();
-	PACKETPP_ASSERT(authority->setData("fe80::5a1f:aaff:fe4f:3f9d") == false, "Managed to set IPv6 data for DNS authority record of type IPv4");
+	IPv6DnsResourceData ipv6DnsData(std::string("fe80::5a1f:aaff:fe4f:3f9d"));
+	PACKETPP_ASSERT(authority->setData(&ipv6DnsData) == false, "Managed to set IPv6 data for DNS authority record of type IPv4");
 	LoggerPP::getInstance().enableErrors();
 	authority->setDnsType(DNS_TYPE_AAAA);
 	LoggerPP::getInstance().supressErrors();
-	PACKETPP_ASSERT(authority->setData("fe80::5a1f:aaff.fe4f:3f9d") == false, "Managed to set malformed IPv6 data for DNS authority record");
+	ipv6DnsData = IPv6DnsResourceData(std::string("fe80::5a1f:aaff$fe4f:3f9d"));
+	PACKETPP_ASSERT(authority->setData(&ipv6DnsData) == false, "Managed to set malformed IPv6 data for DNS authority record");
 	LoggerPP::getInstance().enableErrors();
-	PACKETPP_ASSERT(authority->setData("fe80::5a1f:aaff:fe4f:3f9d") == true, "Couldn't IPv6 data for DNS authority record");
+	ipv6DnsData = IPv6DnsResourceData(std::string("fe80::5a1f:aaff:fe4f:3f9d"));
+	PACKETPP_ASSERT(authority->setData(&ipv6DnsData) == true, "Couldn't IPv6 data for DNS authority record");
 
 	query = dnsLayer6.addQuery(query);
 	query->setDnsClass(DNS_CLASS_ANY);
 
-	PACKETPP_ASSERT(dnsLayer6.getQueryCount() == 2, "Query count != 2, it's %d", dnsLayer6.getQueryCount());
+	PACKETPP_ASSERT(dnsLayer6.getQueryCount() == 2, "Query count != 2, it's %d", (int)dnsLayer6.getQueryCount());
 	PACKETPP_ASSERT(dnsLayer6.getAuthorityCount() == 2, "Authority count != 2");
 	PACKETPP_ASSERT(dnsLayer6.getAnswerCount() == 0, "Answers count != 0");
 	PACKETPP_ASSERT(dnsLayer6.getAdditionalRecordCount() == 0, "Additional record count != 0");
 
-	DnsResource* additional = dnsLayer6.addAdditionalRecord("", DNS_TYPE_OPT, 0xa005, 0x1194, "0x0004000800df581faa4f3f9d");
+	GenericDnsResourceData genericData("0004000800df581faa4f3f9d");
+	DnsResource* additional = dnsLayer6.addAdditionalRecord("", DNS_TYPE_OPT, 0xa005, 0x1194, &genericData);
 	PACKETPP_ASSERT(additional != NULL, "Couldn't add additional record");
 	LoggerPP::getInstance().supressErrors();
-	PACKETPP_ASSERT(additional->setData("a01234") == false, "Managed to set hex data with no '0x' at the beginning");
-	PACKETPP_ASSERT(additional->setData("0xa0123") == false, "Managed to set hex data with odd number of characters");
-	PACKETPP_ASSERT(additional->setData("0xa01j34") == false, "Managed to set hex data with illegal hex characters");
+	genericData = GenericDnsResourceData("a0123");
+	PACKETPP_ASSERT(additional->setData(&genericData) == false, "Managed to set hex data with odd number of characters");
+	genericData = GenericDnsResourceData("a01j34");
+	PACKETPP_ASSERT(additional->setData(&genericData) == false, "Managed to set hex data with illegal hex characters");
 	LoggerPP::getInstance().enableErrors();
 
 	dnsEdit6Packet.computeCalculateFields();
@@ -2422,6 +2992,63 @@ PACKETPP_TEST(DnsLayerResourceCreationTest)
 	PACKETPP_ASSERT(buffer6Length == dnsEdit6Packet.getRawPacket()->getRawDataLen(), "Generated packet len (%d) is different than read packet len (%d)", dnsEdit6Packet.getRawPacket()->getRawDataLen(), buffer6Length);
 
 	PACKETPP_ASSERT(memcmp(dnsEdit6Packet.getRawPacket()->getRawData(), buffer6, buffer6Length) == 0, "Raw packet data is different than expected");
+
+
+
+	int buffer7Length = 0;
+	uint8_t* buffer7 = readFileIntoBuffer("PacketExamples/DnsEdit7.dat", buffer7Length);
+	PACKETPP_ASSERT(!(buffer7 == NULL), "cannot read file DnsEdit7.dat");
+
+	RawPacket raw7Packet((const uint8_t*)buffer7, buffer7Length, time, true);
+
+	Packet dnsEdit7RefPacket(&raw7Packet);
+
+	Packet dnsEdit7Packet(60);
+
+	EthLayer ethLayer7(*dnsEdit7RefPacket.getLayerOfType<EthLayer>());
+	PACKETPP_ASSERT(dnsEdit7Packet.addLayer(&ethLayer7), "Add EthLayer failed");
+
+	IPv4Layer ipLayer7(*dnsEdit7RefPacket.getLayerOfType<IPv4Layer>());
+	PACKETPP_ASSERT(dnsEdit7Packet.addLayer(&ipLayer7), "Add IPv4Layer failed");
+
+	UdpLayer udpLayer7(*dnsEdit7RefPacket.getLayerOfType<UdpLayer>());
+	PACKETPP_ASSERT(dnsEdit7Packet.addLayer(&udpLayer7), "Add UdpLayer failed");
+
+	DnsLayer dnsLayer7;
+	dnsLayer7.getDnsHeader()->transactionID = htons(612);
+	dnsLayer7.getDnsHeader()->queryOrResponse = 1;
+	dnsLayer7.getDnsHeader()->recursionDesired = 1;
+	dnsLayer7.getDnsHeader()->recursionAvailable = 1;
+
+	query = dnsLayer7.addQuery("yahoo.com", DNS_TYPE_MX, DNS_CLASS_IN);
+	PACKETPP_ASSERT(query != NULL, "Couldn't add query to dnsLayer7");
+
+	std::stringstream queryNameOffset;
+	queryNameOffset << "#" << query->getNameOffset();
+
+	MxDnsResourceData mxDnsData(1, "mta5.am0.yahoodns.net");
+	DnsResource* answer = dnsLayer7.addAnswer(queryNameOffset.str(), DNS_TYPE_MX, DNS_CLASS_IN, 187, &mxDnsData);
+	PACKETPP_ASSERT(answer != NULL, "Couldn't add first answer to dnsLayer7");
+
+	std::stringstream firsAnswerMxOffset;
+	firsAnswerMxOffset << "#" << (answer->getDataOffset() + 2 + 5);
+
+	mxDnsData.setMxData(1, "mta7." + firsAnswerMxOffset.str());
+	answer = dnsLayer7.addAnswer(queryNameOffset.str(), DNS_TYPE_MX, DNS_CLASS_IN, 187, &mxDnsData);
+	PACKETPP_ASSERT(answer != NULL, "Couldn't add second answer to dnsLayer7");
+
+	mxDnsData.setMxData(1, "mta6." + firsAnswerMxOffset.str());
+	answer = dnsLayer7.addAnswer(queryNameOffset.str(), DNS_TYPE_MX, DNS_CLASS_IN, 187, &mxDnsData);
+	PACKETPP_ASSERT(answer != NULL, "Couldn't add third answer to dnsLayer7");
+
+	PACKETPP_ASSERT(dnsEdit7Packet.addLayer(&dnsLayer7), "Couldn't set DNS layer for packet DnsEdit7");
+
+	dnsEdit7Packet.computeCalculateFields();
+
+	PACKETPP_ASSERT(buffer7Length == dnsEdit7Packet.getRawPacket()->getRawDataLen(), "DnsEdit7: Generated packet len (%d) is different than read packet len (%d)", dnsEdit7Packet.getRawPacket()->getRawDataLen(), buffer7Length);
+
+	PACKETPP_ASSERT(memcmp(dnsEdit7Packet.getRawPacket()->getRawData(), buffer7, buffer7Length) == 0, "DnsEdit7: Raw packet data is different than expected");
+
 
 	PACKETPP_TEST_PASSED;
 }
@@ -2494,7 +3121,7 @@ PACKETPP_TEST(DnsLayerRemoveResourceTest)
 	PACKETPP_ASSERT(dnsLayer6->getFirstQuery() == secondQuery, "Remove query didn't remove the query properly from the resources linked list");
 	PACKETPP_ASSERT(dnsLayer6->getFirstQuery()->getDnsType() == DNS_TYPE_ALL, "Remove query didn't properly removed query data from layer");
 	PACKETPP_ASSERT(dnsLayer6->getQueryCount() == 1, "Query count after removing the first query != 1");
-	PACKETPP_ASSERT(dnsLayer6->getFirstAuthority()->getDataAsString() == "10.0.0.2", "Remove query didn't properly removed query data from layer");
+	PACKETPP_ASSERT(dnsLayer6->getFirstAuthority()->getData()->toString() == "10.0.0.2", "Remove query didn't properly removed query data from layer");
 	PACKETPP_ASSERT(dnsLayer6->getFirstAdditionalRecord()->getDnsType() == DNS_TYPE_OPT, "Remove query didn't properly removed query data from layer");
 
 	PACKETPP_ASSERT(dnsLayer6->getHeaderLen() == origDnsLayer6.getHeaderLen()-firstQuerySize, "DNS layer size after removing the first query is wrong");
@@ -2536,7 +3163,7 @@ PACKETPP_TEST(DnsLayerRemoveResourceTest)
 	PACKETPP_ASSERT(dnsLayer6->removeAdditionalRecord(dnsLayer6->getFirstAdditionalRecord()) == true, "Couldn't remove additional record");
 	PACKETPP_ASSERT(dnsLayer6->getAdditionalRecordCount() == 0, "Additional record count after removing the additional record != 0");
 	PACKETPP_ASSERT(dnsLayer6->getFirstAdditionalRecord() == NULL, "Getting first additional record after removing all records gave result != NULL");
-	PACKETPP_ASSERT(dnsLayer6->getFirstAuthority()->getDataAsString() == "10.0.0.2", "First authority data after removing additional record is different than expected");
+	PACKETPP_ASSERT(dnsLayer6->getFirstAuthority()->getData()->toString() == "10.0.0.2", "First authority data after removing additional record is different than expected");
 	PACKETPP_ASSERT(dnsLayer6->getHeaderLen() == origDnsLayer6.getHeaderLen()-firstQuerySize-secondAuthoritySize-additionalRecordSize, "DNS layer size after removing the additional record is wrong");
 
 
@@ -2564,7 +3191,7 @@ PACKETPP_TEST(DnsLayerRemoveResourceTest)
 	DnsResource* firstAnswer = dnsLayer4->getFirstAnswer();
 	PACKETPP_ASSERT(firstAnswer != NULL, "Couldn't find first answer");
 	size_t firstAnswerSize = firstAnswer->getSize();
-	PACKETPP_ASSERT(dnsLayer4->getFirstAnswer()->getDataAsString() == "assets.pinterest.com.cdngc.net", "First answer data after removing first query is wrong");
+	PACKETPP_ASSERT(dnsLayer4->getFirstAnswer()->getData()->toString() == "assets.pinterest.com.cdngc.net", "First answer data after removing first query is wrong");
 
 	DnsResource* secondAnswer = dnsLayer4->getNextAnswer(firstAnswer);
 	PACKETPP_ASSERT(secondAnswer != NULL, "Couldn't find second answer");
@@ -2582,7 +3209,7 @@ PACKETPP_TEST(DnsLayerRemoveResourceTest)
 	PACKETPP_ASSERT(dnsLayer4->removeAnswer(firstAnswer) == true, "Couldn't remove first answer");
 	PACKETPP_ASSERT(dnsLayer4->getAnswerCount() == 1, "Answer count after removing the first answer != 1");
 	PACKETPP_ASSERT(dnsLayer4->getFirstAnswer() == thirdAnswer, "First answer after removing the first answer isn't as expected");
-	PACKETPP_ASSERT(dnsLayer4->getFirstAnswer()->getDataAsString() == "151.249.90.238", "Third answer data isn't as expected");
+	PACKETPP_ASSERT(dnsLayer4->getFirstAnswer()->getData()->toString() == "151.249.90.238", "Third answer data isn't as expected");
 	PACKETPP_ASSERT(dnsLayer4->getHeaderLen() == origDnsLayer4.getHeaderLen()-firstQuerySize-secondAnswerSize-firstAnswerSize, "DNS layer size after removing the first answer is wrong");
 
 	PACKETPP_ASSERT(dnsLayer4->removeAnswer(thirdAnswer) == true, "Couldn't remove third answer");
@@ -2637,7 +3264,7 @@ PACKETPP_TEST(MplsLayerTest)
 	PACKETPP_ASSERT(mplsLayer->getMplsLabel() == 16, "label != 16 for MplsPackets1.dat");
 
 	PACKETPP_ASSERT(mplsLayer->getNextLayer() != NULL, "Layer after MPLS is NULL");
-	PACKETPP_ASSERT(mplsLayer->getNextLayer()->getProtocol() == pcpp::Unknown, "Layer after MPLS isn't general payload");
+	PACKETPP_ASSERT(mplsLayer->getNextLayer()->getProtocol() == pcpp::GenericPayload, "Layer after MPLS isn't general payload");
 
 	mplsLayer->setBottomOfStack(true);
 	PACKETPP_ASSERT(mplsLayer->setExperimentalUseValue(6) == true, "Couldn't set a legal exp value");
@@ -2668,7 +3295,7 @@ PACKETPP_TEST(CopyLayerAndPacketTest)
 {
 	int bufferLength = 0;
 	uint8_t* buffer = readFileIntoBuffer("PacketExamples/TwoHttpResponses1.dat", bufferLength);
-	PACKETPP_ASSERT(!(buffer == NULL), "cannot read file");
+	PACKETPP_ASSERT(!(buffer == NULL), "cannot read file TwoHttpResponses1.dat");
 
 	timeval time;
 	gettimeofday(&time, NULL);
@@ -2707,11 +3334,11 @@ PACKETPP_TEST(CopyLayerAndPacketTest)
 			"TcpLayer copy c'tor didn't actually copy the data, data pointer of original and copied layers are equal");
 	PACKETPP_ASSERT(memcmp(sampleTcpPacketWithOptions.getLayerOfType<TcpLayer>()->getData(), tcpLayer.getData(), sampleTcpPacketWithOptions.getLayerOfType<TcpLayer>()->getDataLen()) == 0,
 			"TcpLayer copy c'tor didn't copy data properly, original and copied data isn't equal");
-	PACKETPP_ASSERT(tcpLayer.getTcpOptionsCount() == sampleTcpPacketWithOptions.getLayerOfType<TcpLayer>()->getTcpOptionsCount(),
+	PACKETPP_ASSERT(tcpLayer.getTcpOptionCount() == sampleTcpPacketWithOptions.getLayerOfType<TcpLayer>()->getTcpOptionCount(),
 			"TcpLayer copy and original TCP options count is not equal");
-	PACKETPP_ASSERT(sampleTcpPacketWithOptions.getLayerOfType<TcpLayer>()->getTcpOptionData(PCPP_TCPOPT_TIMESTAMP) != tcpLayer.getTcpOptionData(PCPP_TCPOPT_TIMESTAMP),
+	PACKETPP_ASSERT(sampleTcpPacketWithOptions.getLayerOfType<TcpLayer>()->getTcpOption(PCPP_TCPOPT_TIMESTAMP).getRecordBasePtr() != tcpLayer.getTcpOption(PCPP_TCPOPT_TIMESTAMP).getRecordBasePtr(),
 			"TcpLayer copy and original TCP Timestamp option pointer is the same");
-	PACKETPP_ASSERT(memcmp(sampleTcpPacketWithOptions.getLayerOfType<TcpLayer>()->getTcpOptionData(PCPP_TCPOPT_TIMESTAMP), tcpLayer.getTcpOptionData(PCPP_TCPOPT_TIMESTAMP), PCPP_TCPOLEN_TIMESTAMP) == 0,
+	PACKETPP_ASSERT(sampleTcpPacketWithOptions.getLayerOfType<TcpLayer>()->getTcpOption(PCPP_TCPOPT_TIMESTAMP) == tcpLayer.getTcpOption(PCPP_TCPOPT_TIMESTAMP),
 			"TcpLayer copy and original TCP Timestamp option data differs");
 
 
@@ -2725,8 +3352,8 @@ PACKETPP_TEST(CopyLayerAndPacketTest)
 	PACKETPP_ASSERT(sampleHttpLayer->getFirstLine()->getSize() == httpResLayer.getFirstLine()->getSize(), "HttpResponseLayer copy c'tor: sizes differ between original and copy");
 	PACKETPP_ASSERT(sampleHttpLayer->getFirstLine()->getVersion() == httpResLayer.getFirstLine()->getVersion(), "HttpResponseLayer copy c'tor: versions differ between original and copy");
 
-	HttpField* curFieldInSample = sampleHttpLayer->getFirstField();
-	HttpField* curFieldInCopy = httpResLayer.getFirstField();
+	HeaderField* curFieldInSample = sampleHttpLayer->getFirstField();
+	HeaderField* curFieldInCopy = httpResLayer.getFirstField();
 	while (curFieldInSample != NULL && curFieldInCopy != NULL)
 	{
 		PACKETPP_ASSERT(curFieldInCopy != curFieldInSample, "HttpRequestLayer copy c'tor didn't actually copy the field '%s'", curFieldInSample->getFieldName().c_str());
@@ -2738,7 +3365,7 @@ PACKETPP_TEST(CopyLayerAndPacketTest)
 				curFieldInSample->getFieldValue().c_str(), curFieldInCopy->getFieldValue().c_str());
 		PACKETPP_ASSERT(curFieldInSample->getFieldSize() == curFieldInCopy->getFieldSize(),
 				"HttpResponseLayer copy c'tor: different field size between original and copy. Original: '%d', Copy: '%d'",
-				curFieldInSample->getFieldSize(), curFieldInCopy->getFieldSize());
+				(int)curFieldInSample->getFieldSize(), (int)curFieldInCopy->getFieldSize());
 
 		curFieldInSample = sampleHttpLayer->getNextField(curFieldInSample);
 		curFieldInCopy = sampleHttpLayer->getNextField(curFieldInCopy);
@@ -2748,47 +3375,117 @@ PACKETPP_TEST(CopyLayerAndPacketTest)
 	PACKETPP_ASSERT(curFieldInCopy == NULL, "HttpResponseLayer copy c'tor: number of fields differs between original and copy");
 
 
-	//Packet copy c'tor test
-	//----------------------
+	//Packet copy c'tor test - Ethernet
+	//---------------------------------
 
 	Packet samplePacketCopy(sampleHttpPacket);
-	PACKETPP_ASSERT(samplePacketCopy.getFirstLayer() != sampleHttpPacket.getFirstLayer(), "Packet copy c'tor didn't actually copy first layer");
-	PACKETPP_ASSERT(samplePacketCopy.getLastLayer() != sampleHttpPacket.getLastLayer(), "Packet copy c'tor didn't actually last layer");
-	PACKETPP_ASSERT(samplePacketCopy.getRawPacket() != sampleHttpPacket.getRawPacket(), "Packet copy c'tor didn't actually copy raw packet");
+	PACKETPP_ASSERT(samplePacketCopy.getFirstLayer() != sampleHttpPacket.getFirstLayer(), "Ethernet: Packet copy c'tor didn't actually copy first layer");
+	PACKETPP_ASSERT(samplePacketCopy.getLastLayer() != sampleHttpPacket.getLastLayer(), "Ethernet: Packet copy c'tor didn't actually last layer");
+	PACKETPP_ASSERT(samplePacketCopy.getRawPacket() != sampleHttpPacket.getRawPacket(), "Ethernet: Packet copy c'tor didn't actually copy raw packet");
 	PACKETPP_ASSERT(samplePacketCopy.getRawPacket()->getRawDataLen() == sampleHttpPacket.getRawPacket()->getRawDataLen(),
-			"Packet copy c'tor: raw packet length differs");
+			"Ethernet: Packet copy c'tor: raw packet length differs");
 	PACKETPP_ASSERT(memcmp(samplePacketCopy.getRawPacket()->getRawData(), sampleHttpPacket.getRawPacket()->getRawData(), sampleHttpPacket.getRawPacket()->getRawDataLen()) == 0,
-			"Packet copy c'tor: raw packet data differs");
-	PACKETPP_ASSERT(samplePacketCopy.isPacketOfType(Ethernet) == true, "Packet copy isn't of type ethernet");
-	PACKETPP_ASSERT(samplePacketCopy.isPacketOfType(IPv4) == true, "Packet copy isn't of type IPv4");
-	PACKETPP_ASSERT(samplePacketCopy.isPacketOfType(TCP) == true, "Packet copy isn't of type TCP");
-	PACKETPP_ASSERT(samplePacketCopy.isPacketOfType(HTTPResponse) == true, "Packet copy isn't of type HTTP response");
+			"Ethernet: Packet copy c'tor: raw packet data differs");
+	PACKETPP_ASSERT(samplePacketCopy.isPacketOfType(Ethernet) == true, "Ethernet: Packet copy isn't of type ethernet");
+	PACKETPP_ASSERT(samplePacketCopy.isPacketOfType(IPv4) == true, "Ethernet: Packet copy isn't of type IPv4");
+	PACKETPP_ASSERT(samplePacketCopy.isPacketOfType(TCP) == true, "Ethernet: Packet copy isn't of type TCP");
+	PACKETPP_ASSERT(samplePacketCopy.isPacketOfType(HTTPResponse) == true, "Ethernet: Packet copy isn't of type HTTP response");
 	Layer* curSamplePacketLayer = sampleHttpPacket.getFirstLayer();
 	Layer* curPacketCopyLayer = samplePacketCopy.getFirstLayer();
 	while (curSamplePacketLayer != NULL && curPacketCopyLayer != NULL)
 	{
-		PACKETPP_ASSERT(curSamplePacketLayer->getProtocol() == curPacketCopyLayer->getProtocol(), "Packet copy c'tor: layer protocol is different");
-		PACKETPP_ASSERT(curSamplePacketLayer->getHeaderLen() == curPacketCopyLayer->getHeaderLen(), "Packet copy c'tor: layer header len is different");
-		PACKETPP_ASSERT(curSamplePacketLayer->getLayerPayloadSize() == curPacketCopyLayer->getLayerPayloadSize(), "Packet copy c'tor: layer payload size is different");
-		PACKETPP_ASSERT(curSamplePacketLayer->getDataLen() == curPacketCopyLayer->getDataLen(), "Packet copy c'tor: data len is different");
-		PACKETPP_ASSERT(memcmp(curSamplePacketLayer->getData(), curPacketCopyLayer->getData(), curSamplePacketLayer->getDataLen()) == 0, "Packet copy c'tor: layer data differs");
+		PACKETPP_ASSERT(curSamplePacketLayer->getProtocol() == curPacketCopyLayer->getProtocol(), "Ethernet: Packet copy c'tor: layer protocol is different");
+		PACKETPP_ASSERT(curSamplePacketLayer->getHeaderLen() == curPacketCopyLayer->getHeaderLen(), "Ethernet: Packet copy c'tor: layer header len is different");
+		PACKETPP_ASSERT(curSamplePacketLayer->getLayerPayloadSize() == curPacketCopyLayer->getLayerPayloadSize(), "Ethernet: Packet copy c'tor: layer payload size is different");
+		PACKETPP_ASSERT(curSamplePacketLayer->getDataLen() == curPacketCopyLayer->getDataLen(), "Ethernet: Packet copy c'tor: data len is different");
+		PACKETPP_ASSERT(memcmp(curSamplePacketLayer->getData(), curPacketCopyLayer->getData(), curSamplePacketLayer->getDataLen()) == 0, "Ethernet: Packet copy c'tor: layer data differs");
 		curSamplePacketLayer = curSamplePacketLayer->getNextLayer();
 		curPacketCopyLayer = curPacketCopyLayer->getNextLayer();
 	}
 
-	PACKETPP_ASSERT(curSamplePacketLayer == NULL, "Packet copy c'tor: number of layers differs between original and copy");
-	PACKETPP_ASSERT(curPacketCopyLayer == NULL, "Packet copy c'tor: number of layers differs between original and copy");
+	PACKETPP_ASSERT(curSamplePacketLayer == NULL, "Ethernet: Packet copy c'tor: number of layers differs between original and copy");
+	PACKETPP_ASSERT(curPacketCopyLayer == NULL, "Ethernet: Packet copy c'tor: number of layers differs between original and copy");
+
+
+	//Packet copy c'tor test - Null/Loopback
+	//--------------------------------------
+
+	int buffer3Length = 0;
+	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/NullLoopback1.dat", buffer3Length);
+	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file NullLoopback1.dat");
+
+	RawPacket nullLoopbackRawPacket((const uint8_t*)buffer3, buffer3Length, time, true, LINKTYPE_NULL);
+	Packet nullLoopbackPacket(&nullLoopbackRawPacket);
+
+	Packet nullLoopbackPacketCopy(nullLoopbackPacket);
+
+	PACKETPP_ASSERT(nullLoopbackPacketCopy.getFirstLayer() != nullLoopbackPacket.getFirstLayer(), "Null/Loopback: Packet copy c'tor didn't actually copy first layer");
+	PACKETPP_ASSERT(nullLoopbackPacketCopy.getLastLayer() != nullLoopbackPacket.getLastLayer(), "Null/Loopback: Packet copy c'tor didn't actually last layer");
+	PACKETPP_ASSERT(nullLoopbackPacketCopy.getRawPacket() != nullLoopbackPacket.getRawPacket(), "Null/Loopback: Packet copy c'tor didn't actually copy raw packet");
+	PACKETPP_ASSERT(nullLoopbackPacketCopy.getRawPacket()->getRawDataLen() == nullLoopbackPacket.getRawPacket()->getRawDataLen(),
+			"Null/Loopback: Packet copy c'tor: raw packet length differs");
+	PACKETPP_ASSERT(memcmp(nullLoopbackPacketCopy.getRawPacket()->getRawData(), nullLoopbackPacket.getRawPacket()->getRawData(), nullLoopbackPacket.getRawPacket()->getRawDataLen()) == 0,
+			"Null/Loopback: Packet copy c'tor: raw packet data differs");
+	PACKETPP_ASSERT(nullLoopbackPacketCopy.getRawPacket()->getLinkLayerType() == LINKTYPE_NULL, "Null/Loopback: Packet copy link type isn't LINKTYPE_NULL");
+	PACKETPP_ASSERT(nullLoopbackPacketCopy.getFirstLayer()->getProtocol() == NULL_LOOPBACK, "Null/Loopback: Packet copy first layer isn't of type NULL_LOOPBACK");
+
+	curSamplePacketLayer = nullLoopbackPacket.getFirstLayer();
+	curPacketCopyLayer = nullLoopbackPacketCopy.getFirstLayer();
+	while (curSamplePacketLayer != NULL && curPacketCopyLayer != NULL)
+	{
+		PACKETPP_ASSERT(curSamplePacketLayer->getProtocol() == curPacketCopyLayer->getProtocol(), "Null/Loopback: Packet copy c'tor: layer protocol is different");
+		PACKETPP_ASSERT(curSamplePacketLayer->getHeaderLen() == curPacketCopyLayer->getHeaderLen(), "Null/Loopback: Packet copy c'tor: layer header len is different");
+		PACKETPP_ASSERT(curSamplePacketLayer->getLayerPayloadSize() == curPacketCopyLayer->getLayerPayloadSize(), "Null/Loopback: Packet copy c'tor: layer payload size is different");
+		PACKETPP_ASSERT(curSamplePacketLayer->getDataLen() == curPacketCopyLayer->getDataLen(), "Null/Loopback: Packet copy c'tor: data len is different");
+		curSamplePacketLayer = curSamplePacketLayer->getNextLayer();
+		curPacketCopyLayer = curPacketCopyLayer->getNextLayer();
+	}
+
+
+	//Packet copy c'tor test - SLL
+	//----------------------------
+
+	int buffer4Length = 0;
+	uint8_t* buffer4 = readFileIntoBuffer("PacketExamples/SllPacket2.dat", buffer4Length);
+	PACKETPP_ASSERT(!(buffer4 == NULL), "cannot read file SllPacket2.dat");
+
+	RawPacket sllRawPacket((const uint8_t*)buffer4, buffer4Length, time, true, LINKTYPE_LINUX_SLL);
+	Packet sllPacket(&sllRawPacket);
+
+	Packet sllPacketCopy(sllPacket);
+
+	PACKETPP_ASSERT(sllPacketCopy.getFirstLayer() != sllPacket.getFirstLayer(), "SLL: Packet copy c'tor didn't actually copy first layer");
+	PACKETPP_ASSERT(sllPacketCopy.getLastLayer() != sllPacket.getLastLayer(), "SLL: Packet copy c'tor didn't actually last layer");
+	PACKETPP_ASSERT(sllPacketCopy.getRawPacket() != sllPacket.getRawPacket(), "SLL: Packet copy c'tor didn't actually copy raw packet");
+	PACKETPP_ASSERT(sllPacketCopy.getRawPacket()->getRawDataLen() == sllPacket.getRawPacket()->getRawDataLen(),
+			"SLL: Packet copy c'tor: raw packet length differs");
+	PACKETPP_ASSERT(memcmp(sllPacketCopy.getRawPacket()->getRawData(), sllPacket.getRawPacket()->getRawData(), sllPacket.getRawPacket()->getRawDataLen()) == 0,
+			"SLL: Packet copy c'tor: raw packet data differs");
+	PACKETPP_ASSERT(sllPacketCopy.getRawPacket()->getLinkLayerType() == LINKTYPE_LINUX_SLL, "SLL: Packet copy link type isn't LINKTYPE_LINUX_SLL");
+	PACKETPP_ASSERT(sllPacketCopy.getFirstLayer()->getProtocol() == SLL, "SLL: Packet copy first layer isn't of type SLL");
+
+	curSamplePacketLayer = sllPacket.getFirstLayer();
+	curPacketCopyLayer = sllPacketCopy.getFirstLayer();
+	while (curSamplePacketLayer != NULL && curPacketCopyLayer != NULL)
+	{
+		PACKETPP_ASSERT(curSamplePacketLayer->getProtocol() == curPacketCopyLayer->getProtocol(), "SLL: Packet copy c'tor: layer protocol is different");
+		PACKETPP_ASSERT(curSamplePacketLayer->getHeaderLen() == curPacketCopyLayer->getHeaderLen(), "SLL: Packet copy c'tor: layer header len is different");
+		PACKETPP_ASSERT(curSamplePacketLayer->getLayerPayloadSize() == curPacketCopyLayer->getLayerPayloadSize(), "SLL: Packet copy c'tor: layer payload size is different");
+		PACKETPP_ASSERT(curSamplePacketLayer->getDataLen() == curPacketCopyLayer->getDataLen(), "SLL: Packet copy c'tor: data len is different");
+		curSamplePacketLayer = curSamplePacketLayer->getNextLayer();
+		curPacketCopyLayer = curPacketCopyLayer->getNextLayer();
+	}
 
 
 	//DnsLayer copy c'tor and operator= test
 	//--------------------------------------
-	int buffer3Length = 0;
-	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/Dns2.dat", buffer3Length);
-	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file Dns2.dat");
+	int buffer5Length = 0;
+	uint8_t* buffer5 = readFileIntoBuffer("PacketExamples/Dns2.dat", buffer5Length);
+	PACKETPP_ASSERT(!(buffer5 == NULL), "cannot read file Dns2.dat");
 
-	RawPacket sampleRawPacket3((const uint8_t*)buffer3, buffer3Length, time, true);
+	RawPacket sampleRawPacket5((const uint8_t*)buffer5, buffer5Length, time, true);
 
-	Packet sampleDnsPacket(&sampleRawPacket3);
+	Packet sampleDnsPacket(&sampleRawPacket5);
 
 	DnsLayer* origDnsLayer = sampleDnsPacket.getLayerOfType<DnsLayer>();
 	PACKETPP_ASSERT(origDnsLayer != NULL, "Couldn't find DNS layer in file");
@@ -2798,12 +3495,13 @@ PACKETPP_TEST(CopyLayerAndPacketTest)
 	PACKETPP_ASSERT(copyDnsLayer.getFirstQuery()->getDnsType() == origDnsLayer->getFirstQuery()->getDnsType(), "DNS type for first query differs");
 
 	PACKETPP_ASSERT(copyDnsLayer.getAuthorityCount() == origDnsLayer->getAuthorityCount(), "Authority count differs");
-	PACKETPP_ASSERT(copyDnsLayer.getAuthority("Yaels-iPhone.local", true)->getDataAsString() == origDnsLayer->getAuthority("Yaels-iPhone.local", true)->getDataAsString(), "Authority data differs");
+	PACKETPP_ASSERT(copyDnsLayer.getAuthority("Yaels-iPhone.local", true)->getData()->toString() == origDnsLayer->getAuthority("Yaels-iPhone.local", true)->getData()->toString(), "Authority data differs");
 
-	PACKETPP_ASSERT(copyDnsLayer.getAdditionalRecord("", true)->getDataAsString() == origDnsLayer->getAdditionalRecord("", true)->getDataAsString(), "Additional data differs");
+	PACKETPP_ASSERT(copyDnsLayer.getAdditionalRecord("", true)->getData()->toString() == origDnsLayer->getAdditionalRecord("", true)->getData()->toString(), "Additional data differs");
 
 	copyDnsLayer.addQuery("bla", DNS_TYPE_A, DNS_CLASS_ANY);
-	copyDnsLayer.addAnswer("bla", DNS_TYPE_A, DNS_CLASS_ANY, 123, "1.1.1.1");
+	IPv4DnsResourceData ipv4DnsData(std::string("1.1.1.1"));
+	copyDnsLayer.addAnswer("bla", DNS_TYPE_A, DNS_CLASS_ANY, 123, &ipv4DnsData);
 
 	copyDnsLayer = *origDnsLayer;
 
@@ -2812,11 +3510,11 @@ PACKETPP_TEST(CopyLayerAndPacketTest)
 	PACKETPP_ASSERT(copyDnsLayer.getFirstQuery()->getDnsType() == origDnsLayer->getFirstQuery()->getDnsType(), "DNS type for first query differs");
 
 	PACKETPP_ASSERT(copyDnsLayer.getAuthorityCount() == origDnsLayer->getAuthorityCount(), "Authority count differs");
-	PACKETPP_ASSERT(copyDnsLayer.getAuthority(".local", false)->getDataAsString() == origDnsLayer->getAuthority("iPhone.local", false)->getDataAsString(), "Authority data differs");
+	PACKETPP_ASSERT(copyDnsLayer.getAuthority(".local", false)->getData()->toString() == origDnsLayer->getAuthority("iPhone.local", false)->getData()->toString(), "Authority data differs");
 
 	PACKETPP_ASSERT(copyDnsLayer.getAnswerCount() == origDnsLayer->getAnswerCount(), "Answer count differs");
 
-	PACKETPP_ASSERT(copyDnsLayer.getAdditionalRecord("", true)->getDataAsString() == origDnsLayer->getAdditionalRecord("", true)->getDataAsString(), "Additional data differs");
+	PACKETPP_ASSERT(copyDnsLayer.getAdditionalRecord("", true)->getData()->toString() == origDnsLayer->getAdditionalRecord("", true)->getData()->toString(), "Additional data differs");
 
 
 
@@ -3152,10 +3850,8 @@ PACKETPP_TEST(IcmpCreationTest)
 	uint8_t* buffer15 = readFileIntoBuffer("PacketExamples/IcmpAddrMaskRep.dat", buffer15Length);
 	PACKETPP_ASSERT(!(buffer15 == NULL), "cannot read file IcmpAddrMaskRep.dat");
 
+	EthLayer ethLayer(MacAddress("11:22:33:44:55:66"), MacAddress("66:55:44:33:22:11"));
 
-	MacAddress srcMac(std::string("11:22:33:44:55:66"));
-	MacAddress destMac(std::string("66:55:44:33:22:11"));
-	EthLayer ethLayer(srcMac, destMac, PCPP_ETHERTYPE_IP);
 	IPv4Layer ipLayer(IPv4Address(std::string("1.1.1.1")), IPv4Address(std::string("2.2.2.2")));
 
 
@@ -3577,9 +4273,7 @@ PACKETPP_TEST(GreCreationTest)
 
 	// GREv1 packet creation
 
-	MacAddress srcMac(std::string("00:90:4b:1f:a4:f7"));
-	MacAddress destMac(std::string("00:0d:ed:7b:48:f4"));
-	EthLayer ethLayer(srcMac, destMac, PCPP_ETHERTYPE_IP);
+	EthLayer ethLayer(MacAddress("00:90:4b:1f:a4:f7"), MacAddress("00:0d:ed:7b:48:f4"));
 	IPv4Layer ipLayer(IPv4Address(std::string("192.168.2.65")), IPv4Address(std::string("192.168.2.254")));
 	ipLayer.getIPv4Header()->ipId = htons(1660);
 	ipLayer.getIPv4Header()->timeToLive = 128;
@@ -3610,9 +4304,7 @@ PACKETPP_TEST(GreCreationTest)
 
 	// GREv0 packet creation
 
-	MacAddress srcMac2(std::string("00:01:01:00:00:01"));
-	MacAddress destMac2(std::string("00:01:01:00:00:02"));
-	EthLayer ethLayer2(srcMac2, destMac2, PCPP_ETHERTYPE_IP);
+	EthLayer ethLayer2(MacAddress("00:01:01:00:00:01"), MacAddress("00:01:01:00:00:02"));
 	IPv4Layer ipLayer2(IPv4Address(std::string("127.0.0.1")), IPv4Address(std::string("127.0.0.1")));
 	ipLayer2.getIPv4Header()->ipId = htons(1);
 	ipLayer2.getIPv4Header()->timeToLive = 64;
@@ -3818,13 +4510,14 @@ PACKETPP_TEST(GreEditTest)
 	PACKETPP_ASSERT(pppLayer != NULL, "GREv1 PPP layer is null");
 	pppLayer->getPPP_PPTPHeader()->control = 255;
 
-	Layer* curLayer = pppLayer->getNextLayer();
-	while (curLayer != NULL)
-	{
-		Layer* temp = curLayer->getNextLayer();
-		grev1Packet.removeLayer(curLayer);
-		curLayer = temp;
-	}
+	PACKETPP_ASSERT(grev1Packet.removeAllLayersAfter(pppLayer) == true, "GREv1 layer couldn't remove all layers after PPP layer");
+	// Layer* curLayer = pppLayer->getNextLayer();
+	// while (curLayer != NULL)
+	// {
+	// 	Layer* temp = curLayer->getNextLayer();
+	// 	grev1Packet.removeLayer(curLayer);
+	// 	curLayer = temp;
+	// }
 
 	grev1Packet.computeCalculateFields();
 
@@ -4061,9 +4754,6 @@ PACKETPP_TEST(SSLAlertParsingTest)
 	PACKETPP_ASSERT(encAlertLayer->getRecordLayer()->length == ntohs(26), "Record length isn't 26");
 	PACKETPP_ASSERT(encAlertLayer->getHeaderLen() == 31, "Header length isn't 31");
 
-//	std::string packetAsString = clearAlertPacket.printToString();
-//	printf("Packet clear:\n\n%s\n\n", packetAsString.c_str());
-
 	PACKETPP_TEST_PASSED;
 }
 
@@ -4085,7 +4775,7 @@ PACKETPP_TEST(SSLMultipleRecordParsingTest)
 	PACKETPP_ASSERT(multipleRecordsPacket.isPacketOfType(SSL) == true, "Packet isn't of type SSL");
 	SSLHandshakeLayer* handshakeLayer = multipleRecordsPacket.getLayerOfType<SSLHandshakeLayer>();
 	PACKETPP_ASSERT(handshakeLayer != NULL, "Couldn't extract first handshake layer");
-	PACKETPP_ASSERT(handshakeLayer->getHandshakeMessagesCount() == 1, "Num of messages in server-hello record != 1, %d", handshakeLayer->getHandshakeMessagesCount());
+	PACKETPP_ASSERT(handshakeLayer->getHandshakeMessagesCount() == 1, "Num of messages in server-hello record != 1, %d", (int)handshakeLayer->getHandshakeMessagesCount());
 	SSLServerHelloMessage* serverHelloMessage = handshakeLayer->getHandshakeMessageOfType<SSLServerHelloMessage>();
 	PACKETPP_ASSERT(serverHelloMessage != NULL, "Couldn't extract server-hello message");
 	PACKETPP_ASSERT(serverHelloMessage->getSessionIDLength() == 32, "Server-hello session-id length != 32");
@@ -4116,7 +4806,7 @@ PACKETPP_TEST(SSLMultipleRecordParsingTest)
 
 	handshakeLayer = multipleRecordsPacket.getNextLayerOfType<SSLHandshakeLayer>(handshakeLayer);
 	PACKETPP_ASSERT(handshakeLayer != NULL, "Couldn't extract third handshake layer");
-	PACKETPP_ASSERT(handshakeLayer->getHandshakeMessagesCount() == 3, "Num of messages in hello-request record != 3, it's %d", handshakeLayer->getHandshakeMessagesCount());
+	PACKETPP_ASSERT(handshakeLayer->getHandshakeMessagesCount() == 3, "Num of messages in hello-request record != 3, it's %d", (int)handshakeLayer->getHandshakeMessagesCount());
 	SSLHelloRequestMessage* helloRequest = handshakeLayer->getHandshakeMessageOfType<SSLHelloRequestMessage>();
 	PACKETPP_ASSERT(helloRequest != NULL, "Couldn't retrieve first hello-request");
 	PACKETPP_ASSERT(helloRequest->getHandshakeType() == SSL_HELLO_REQUEST, "Hello-request message isn't of type hello-request");
@@ -4130,10 +4820,7 @@ PACKETPP_TEST(SSLMultipleRecordParsingTest)
 	PACKETPP_ASSERT(helloRequest2 == NULL, "Found 3rd hello-request message");
 	PACKETPP_ASSERT(handshakeLayer->getHandshakeMessageAt(2) != NULL, "Couldn't find the 3rd handshake message");
 	PACKETPP_ASSERT(handshakeLayer->getHandshakeMessageAt(2)->getHandshakeType() == SSL_HANDSHAKE_UNKNOWN, "3rd handshake message isn't of type unknown");
-	PACKETPP_ASSERT(handshakeLayer->getHandshakeMessageAt(2)->getMessageLength() == 32, "Unknown handshake message isn't of length 32, it's %d", handshakeLayer->getHandshakeMessageAt(2)->getMessageLength());
-
-//	std::string packetAsString = multipleRecordsPacket.printToString();
-//	printf("Packet clear:\n\n%s\n\n", packetAsString.c_str());
+	PACKETPP_ASSERT(handshakeLayer->getHandshakeMessageAt(2)->getMessageLength() == 32, "Unknown handshake message isn't of length 32, it's %d", (int)(handshakeLayer->getHandshakeMessageAt(2)->getMessageLength()));
 
 	PACKETPP_TEST_PASSED;
 }
@@ -4402,12 +5089,12 @@ PACKETPP_TEST(SllPacketCreationTest)
 	tcpLayer.getTcpHeader()->ackNumber = htonl(0x7633e977);
 	tcpLayer.getTcpHeader()->ackFlag = 1;
 	tcpLayer.getTcpHeader()->windowSize = htons(4098);
-	PACKETPP_ASSERT(tcpLayer.addTcpOption(PCPP_TCPOPT_NOP, PCPP_TCPOLEN_NOP, NULL) != NULL, "Cannot add 1st NOP option");
-	PACKETPP_ASSERT(tcpLayer.addTcpOption(PCPP_TCPOPT_NOP, PCPP_TCPOLEN_NOP, NULL) != NULL, "Cannot add 2nd NOP option");
-	TcpOptionData* tsOption = tcpLayer.addTcpOption(PCPP_TCPOPT_TIMESTAMP, PCPP_TCPOLEN_TIMESTAMP, NULL);
-	PACKETPP_ASSERT(tsOption != NULL, "Couldn't set timestamp TCP option");
-	tsOption->setValue<uint32_t>(htonl(0x0402383b));
-	tsOption->setValue<uint32_t>(htonl(0x03ff37f5), 4);
+	PACKETPP_ASSERT(tcpLayer.addTcpOption(TcpOptionBuilder(TcpOptionBuilder::NOP)).isNotNull(), "Cannot add 1st NOP option");
+	PACKETPP_ASSERT(tcpLayer.addTcpOption(TcpOptionBuilder(TcpOptionBuilder::NOP)).isNotNull(), "Cannot add 2nd NOP option");
+	TcpOption tsOption = tcpLayer.addTcpOption(TcpOptionBuilder(PCPP_TCPOPT_TIMESTAMP, NULL, PCPP_TCPOLEN_TIMESTAMP-2));
+	PACKETPP_ASSERT(tsOption.isNotNull(), "Couldn't set timestamp TCP option");
+	tsOption.setValue<uint32_t>(htonl(0x0402383b));
+	tsOption.setValue<uint32_t>(htonl(0x03ff37f5), 4);
 
 	Packet sllPacket(1);
 	sllPacket.addLayer(&sllLayer);
@@ -4453,8 +5140,8 @@ PACKETPP_TEST(DhcpParsingTest)
 	PACKETPP_ASSERT(dhcpLayer->getGatewayIpAddress() == IPv4Address(string("10.10.8.240")), "Gateway IP address isn't 10.10.8.240");
 	PACKETPP_ASSERT(dhcpLayer->getClientHardwareAddress() == MacAddress(string("00:0e:86:11:c0:75")), "Client hardware address isn't 00:0e:86:11:c0:75");
 
-	PACKETPP_ASSERT(dhcpLayer->getOptionsCount() == 12, "Option count is wrong, expected 12 and got %d", dhcpLayer->getOptionsCount());
-	DhcpOptionData* opt = dhcpLayer->getFirstOptionData();
+	PACKETPP_ASSERT(dhcpLayer->getOptionsCount() == 12, "Option count is wrong, expected 12 and got %d", (int)dhcpLayer->getOptionsCount());
+	DhcpOption opt = dhcpLayer->getFirstOptionData();
 	DhcpOptionTypes optTypeArr[] = {
 			DHCPOPT_DHCP_MESSAGE_TYPE,
 			DHCPOPT_SUBNET_MASK,
@@ -4474,23 +5161,23 @@ PACKETPP_TEST(DhcpParsingTest)
 
 	for (size_t i = 0; i < dhcpLayer->getOptionsCount(); i++)
 	{
-		PACKETPP_ASSERT(opt != NULL, "First opt is null");
-		PACKETPP_ASSERT(opt->getType() == optTypeArr[i], "Option #%d type isn't %d, it's %d", i, optTypeArr[i], opt->getType());
-		PACKETPP_ASSERT(opt->getLength() == optLenArr[i], "Option #%d length isn't %d, it's %d", i, optLenArr[i], opt->getLength());
+		PACKETPP_ASSERT(opt.isNull() == false, "First opt is null");
+		PACKETPP_ASSERT(opt.getType() == optTypeArr[i], "Option #%d type isn't %d, it's %d", (int)i, optTypeArr[i], opt.getType());
+		PACKETPP_ASSERT(opt.getDataSize() == optLenArr[i], "Option #%d length isn't %d, it's %d", (int)i, optLenArr[i], (int)opt.getDataSize());
 		opt = dhcpLayer->getNextOptionData(opt);
 	}
 
-	PACKETPP_ASSERT(opt == NULL, "Last option isn't NULL");
+	PACKETPP_ASSERT(opt.isNull() == true, "Last option isn't NULL");
 
 	for (size_t i = 0; i < dhcpLayer->getOptionsCount(); i++)
 	{
-		PACKETPP_ASSERT(dhcpLayer->getOptionData(optTypeArr[i]) != NULL, "Cannot get option of type %d", optTypeArr[i]);
+		PACKETPP_ASSERT(dhcpLayer->getOptionData(optTypeArr[i]).isNull() == false, "Cannot get option of type %d", optTypeArr[i]);
 	}
 
-	PACKETPP_ASSERT(dhcpLayer->getOptionData(DHCPOPT_SUBNET_MASK)->getValueAsIpAddr() == IPv4Address(std::string("255.255.255.0")), "Subnet mask isn't 255.255.255.0");
-	PACKETPP_ASSERT(dhcpLayer->getOptionData(DHCPOPT_DHCP_SERVER_IDENTIFIER)->getValueAsIpAddr() == IPv4Address(std::string("172.22.178.234")), "Server id isn't 172.22.178.234");
-	PACKETPP_ASSERT(dhcpLayer->getOptionData(DHCPOPT_DHCP_LEASE_TIME)->getValueAs<uint32_t>() == htonl(43200), "Lease time isn't 43200");
-	PACKETPP_ASSERT(dhcpLayer->getOptionData(DHCPOPT_TFTP_SERVER_NAME)->getValueAsString() == "172.22.178.234", "TFTP server isn't 172.22.178.234");
+	PACKETPP_ASSERT(dhcpLayer->getOptionData(DHCPOPT_SUBNET_MASK).getValueAsIpAddr() == IPv4Address(std::string("255.255.255.0")), "Subnet mask isn't 255.255.255.0");
+	PACKETPP_ASSERT(dhcpLayer->getOptionData(DHCPOPT_DHCP_SERVER_IDENTIFIER).getValueAsIpAddr() == IPv4Address(std::string("172.22.178.234")), "Server id isn't 172.22.178.234");
+	PACKETPP_ASSERT(dhcpLayer->getOptionData(DHCPOPT_DHCP_LEASE_TIME).getValueAs<uint32_t>() == htonl(43200), "Lease time isn't 43200");
+	PACKETPP_ASSERT(dhcpLayer->getOptionData(DHCPOPT_TFTP_SERVER_NAME).getValueAsString() == "172.22.178.234", "TFTP server isn't 172.22.178.234");
 
 	PACKETPP_ASSERT(dhcpLayer->getMesageType() == DHCP_OFFER, "Message type isn't DHCP_OFFER");
 
@@ -4515,7 +5202,7 @@ PACKETPP_TEST(DhcpParsingTest)
 	PACKETPP_ASSERT(dhcpLayer->getGatewayIpAddress() == IPv4Address::Zero, "Gateway IP address isn't 0.0.0.0");
 	PACKETPP_ASSERT(dhcpLayer->getClientHardwareAddress() == MacAddress(string("00:00:6c:82:dc:4e")), "Client hardware address isn't 00:00:6c:82:dc:4e");
 
-	PACKETPP_ASSERT(dhcpLayer->getOptionsCount() == 9, "Option count is wrong, expected 9 and got %d", dhcpLayer->getOptionsCount());
+	PACKETPP_ASSERT(dhcpLayer->getOptionsCount() == 9, "Option count is wrong, expected 9 and got %d", (int)dhcpLayer->getOptionsCount());
 	opt = dhcpLayer->getFirstOptionData();
 	DhcpOptionTypes optTypeArr2[] = {
 			DHCPOPT_DHCP_MESSAGE_TYPE,
@@ -4533,17 +5220,17 @@ PACKETPP_TEST(DhcpParsingTest)
 
 	for (size_t i = 0; i < dhcpLayer->getOptionsCount(); i++)
 	{
-		PACKETPP_ASSERT(opt != NULL, "First opt is null");
-		PACKETPP_ASSERT(opt->getType() == optTypeArr2[i], "Option #%d type isn't %d, it's %d", i, optTypeArr2[i], opt->getType());
-		PACKETPP_ASSERT(opt->getLength() == optLenArr2[i], "Option #%d length isn't %d, it's %d", i, optLenArr2[i], opt->getLength());
+		PACKETPP_ASSERT(opt.isNull() == false, "First opt is null");
+		PACKETPP_ASSERT(opt.getType() == optTypeArr2[i], "Option #%d type isn't %d, it's %d", (int)i, optTypeArr2[i], opt.getType());
+		PACKETPP_ASSERT(opt.getDataSize() == optLenArr2[i], "Option #%d length isn't %d, it's %d", (int)i, optLenArr2[i], (int)opt.getDataSize());
 		opt = dhcpLayer->getNextOptionData(opt);
 	}
 
-	PACKETPP_ASSERT(opt == NULL, "Last option isn't NULL");
+	PACKETPP_ASSERT(opt.isNull() == true, "Last option isn't NULL");
 
 	for (size_t i = 0; i < dhcpLayer->getOptionsCount(); i++)
 	{
-		PACKETPP_ASSERT(dhcpLayer->getOptionData(optTypeArr2[i]) != NULL, "Cannot get option of type %d", optTypeArr2[i]);
+		PACKETPP_ASSERT(dhcpLayer->getOptionData(optTypeArr2[i]).isNull() == false, "Cannot get option of type %d", optTypeArr2[i]);
 	}
 
 	PACKETPP_ASSERT(dhcpLayer->getMesageType() == DHCP_DISCOVER, "Message type isn't DHCP_DISCOVER");
@@ -4553,9 +5240,7 @@ PACKETPP_TEST(DhcpParsingTest)
 
 PACKETPP_TEST(DhcpCreationTest)
 {
-	MacAddress srcMac(std::string("00:13:72:25:fa:cd"));
-	MacAddress dstMac(std::string("00:e0:b1:49:39:02"));
-	EthLayer ethLayer(srcMac, dstMac, PCPP_ETHERTYPE_IP);
+	EthLayer ethLayer(MacAddress("00:13:72:25:fa:cd"), MacAddress("00:e0:b1:49:39:02"));
 
 	IPv4Address srcIp(std::string("172.22.178.234"));
 	IPv4Address dstIp(std::string("10.10.8.240"));
@@ -4577,34 +5262,29 @@ PACKETPP_TEST(DhcpCreationTest)
 	dhcpLayer.setServerIpAddress(serverIP);
 	dhcpLayer.setGatewayIpAddress(gatewayIP);
 
-	DhcpOptionData* subnetMaskOpt = dhcpLayer.addOption(DHCPOPT_SUBNET_MASK, 4, NULL);
-	PACKETPP_ASSERT(subnetMaskOpt != NULL, "Couldn't add subnet mask option");
-	IPv4Address subnetMask(std::string("255.255.255.0"));
-	subnetMaskOpt->setValueIpAddr(subnetMask);
+	DhcpOption subnetMaskOpt = dhcpLayer.addOption(DhcpOptionBuilder(DHCPOPT_SUBNET_MASK, IPv4Address(std::string("255.255.255.0"))));
+	PACKETPP_ASSERT(subnetMaskOpt.isNull() == false, "Couldn't add subnet mask option");
 
 	uint8_t sipServersData[] = { 0x01, 0xac, 0x16, 0xb2, 0xea };
-	DhcpOptionData* sipServersOpt = dhcpLayer.addOption(DHCPOPT_SIP_SERVERS, 5, sipServersData);
-	PACKETPP_ASSERT(sipServersOpt != NULL, "Couldn't add SIP servers option");
+	DhcpOption sipServersOpt = dhcpLayer.addOption(DhcpOptionBuilder(DHCPOPT_SIP_SERVERS, sipServersData, 5));
+	PACKETPP_ASSERT(sipServersOpt.isNull() == false, "Couldn't add SIP servers option");
 
 	uint8_t agentData[] = { 0x01, 0x14, 0x20, 0x50, 0x4f, 0x4e, 0x20, 0x31, 0x2f, 0x31, 0x2f, 0x30, 0x37, 0x2f, 0x30, 0x31, 0x3a, 0x31, 0x2e, 0x30, 0x2e, 0x31 };
-	DhcpOptionData* agentOpt = dhcpLayer.addOption(DHCPOPT_DHCP_AGENT_OPTIONS, 22, agentData);
-	PACKETPP_ASSERT(agentOpt != NULL, "Couldn't add agent option");
+	DhcpOption agentOpt = dhcpLayer.addOption(DhcpOptionBuilder(DHCPOPT_DHCP_AGENT_OPTIONS, agentData, 22));
+	PACKETPP_ASSERT(agentOpt.isNull() == false, "Couldn't add agent option");
 
-	DhcpOptionData* clientIdOpt = dhcpLayer.addOptionAfter(DHCPOPT_DHCP_CLIENT_IDENTIFIER, 16, NULL, DHCPOPT_SIP_SERVERS);
-	PACKETPP_ASSERT(clientIdOpt != NULL, "Couldn't add client ID option");
-	clientIdOpt->setValue<uint8_t>(0);
-	clientIdOpt->setValueString("nathan1clientid", 1);
+	DhcpOption clientIdOpt = dhcpLayer.addOptionAfter(DhcpOptionBuilder(DHCPOPT_DHCP_CLIENT_IDENTIFIER, NULL, 16), DHCPOPT_SIP_SERVERS);
+	clientIdOpt.setValue<uint8_t>(0);
+	clientIdOpt.setValueString("nathan1clientid", 1);
+	PACKETPP_ASSERT(clientIdOpt.isNull() == false, "Couldn't add client ID option");
 
 	uint8_t authOptData[] = { 0x01, 0x01, 0x00, 0xc8, 0x78, 0xc4, 0x52, 0x56, 0x40, 0x20, 0x81, 0x31, 0x32, 0x33, 0x34, 0x8f, 0xe0, 0xcc, 0xe2, 0xee, 0x85, 0x96,
 			0xab, 0xb2, 0x58, 0x17, 0xc4, 0x80, 0xb2, 0xfd, 0x30};
-	DhcpOptionData* authOpt = dhcpLayer.addOptionAfter(DHCPOPT_AUTHENTICATION, 31, authOptData, DHCPOPT_DHCP_CLIENT_IDENTIFIER);
-	PACKETPP_ASSERT(authOpt != NULL, "Couldn't add authentication option");
+	DhcpOption authOpt = dhcpLayer.addOptionAfter(DhcpOptionBuilder(DHCPOPT_AUTHENTICATION, authOptData, 31), DHCPOPT_DHCP_CLIENT_IDENTIFIER);
+	PACKETPP_ASSERT(authOpt.isNull() == false, "Couldn't add authentication option");
 
-	DhcpOptionData* dhcpServerIdOpt = dhcpLayer.addOptionAfter(DHCPOPT_DHCP_SERVER_IDENTIFIER, 4, NULL, DHCPOPT_SUBNET_MASK);
-	PACKETPP_ASSERT(dhcpServerIdOpt != NULL, "Couldn't add DHCP server ID option");
-	IPv4Address dhcpServerIdIP = IPv4Address(std::string("172.22.178.234"));
-	dhcpServerIdOpt->setValueIpAddr(dhcpServerIdIP);
-
+	DhcpOption dhcpServerIdOpt = dhcpLayer.addOptionAfter(DhcpOptionBuilder(DHCPOPT_DHCP_SERVER_IDENTIFIER, IPv4Address(std::string("172.22.178.234"))), DHCPOPT_SUBNET_MASK);
+	PACKETPP_ASSERT(dhcpServerIdOpt.isNull() == false, "Couldn't add DHCP server ID option");
 
 	Packet newPacket(6);
 	newPacket.addLayer(&ethLayer);
@@ -4612,25 +5292,21 @@ PACKETPP_TEST(DhcpCreationTest)
 	newPacket.addLayer(&udpLayer);
 	newPacket.addLayer(&dhcpLayer);
 
-	DhcpOptionData* routerOpt = dhcpLayer.addOptionAfter(DHCPOPT_ROUTERS, 4, NULL, DHCPOPT_DHCP_SERVER_IDENTIFIER);
-	PACKETPP_ASSERT(routerOpt != NULL, "Couldn't add routers option");
-	IPv4Address routerIP = IPv4Address(std::string("10.10.8.254"));
-	routerOpt->setValueIpAddr(routerIP);
+	DhcpOption routerOpt = dhcpLayer.addOptionAfter(DhcpOptionBuilder(DHCPOPT_ROUTERS, IPv4Address(std::string("10.10.8.254"))), DHCPOPT_DHCP_SERVER_IDENTIFIER);
+	PACKETPP_ASSERT(routerOpt.isNull() == false, "Couldn't add routers option");
 
-	DhcpOptionData* tftpServerOpt = dhcpLayer.addOptionAfter(DHCPOPT_TFTP_SERVER_NAME, 14, NULL, DHCPOPT_ROUTERS);
-	PACKETPP_ASSERT(tftpServerOpt != NULL, "Couldn't add TFTP server name option");
-	tftpServerOpt->setValueString("172.22.178.234");
+	DhcpOption tftpServerOpt = dhcpLayer.addOptionAfter(DhcpOptionBuilder(DHCPOPT_TFTP_SERVER_NAME, std::string("172.22.178.234")), DHCPOPT_ROUTERS);
+	PACKETPP_ASSERT(tftpServerOpt.isNull() == false, "Couldn't add TFTP server name option");
 
-	DhcpOptionData* dnsOpt = dhcpLayer.addOptionAfter(DHCPOPT_DOMAIN_NAME_SERVERS, 8, NULL, DHCPOPT_ROUTERS);
-	PACKETPP_ASSERT(dnsOpt != NULL, "Couldn't add DNS option");
+	DhcpOption dnsOpt = dhcpLayer.addOptionAfter(DhcpOptionBuilder(DHCPOPT_DOMAIN_NAME_SERVERS, NULL, 8), DHCPOPT_ROUTERS);
+	PACKETPP_ASSERT(dnsOpt.isNull() == false, "Couldn't add DNS option");
 	IPv4Address dns1IP = IPv4Address(std::string("143.209.4.1"));
 	IPv4Address dns2IP = IPv4Address(std::string("143.209.5.1"));
-	dnsOpt->setValueIpAddr(dns1IP);
-	dnsOpt->setValueIpAddr(dns2IP, 4);
+	dnsOpt.setValueIpAddr(dns1IP);
+	dnsOpt.setValueIpAddr(dns2IP, 4);
 
-	DhcpOptionData* leaseOpt = dhcpLayer.addOptionAfter(DHCPOPT_DHCP_LEASE_TIME, 4, NULL, DHCPOPT_DHCP_SERVER_IDENTIFIER);
-	PACKETPP_ASSERT(leaseOpt != NULL, "Couldn't add lease option");
-	leaseOpt->setValue<uint32_t>(htonl(43200));
+	DhcpOption leaseOpt = dhcpLayer.addOptionAfter(DhcpOptionBuilder(DHCPOPT_DHCP_LEASE_TIME, (uint32_t)43200), DHCPOPT_DHCP_SERVER_IDENTIFIER);
+	PACKETPP_ASSERT(leaseOpt.isNull() == false, "Couldn't add lease option");
 
 	newPacket.computeCalculateFields();
 
@@ -4668,20 +5344,19 @@ PACKETPP_TEST(DhcpEditTest)
 
 	PACKETPP_ASSERT(dhcpLayer->removeOption(DHCPOPT_DHCP_MAX_MESSAGE_SIZE) == true, "Couldn't remove DHCPOPT_DHCP_MAX_MESSAGE_SIZE");
 
-	DhcpOptionData* opt = dhcpLayer->getOptionData(DHCPOPT_SUBNET_MASK);
+	DhcpOption opt = dhcpLayer->getOptionData(DHCPOPT_SUBNET_MASK);
 	IPv4Address newSubnet(std::string("255.255.255.0"));
-	opt->setValueIpAddr(newSubnet);
+	opt.setValueIpAddr(newSubnet);
 
 	PACKETPP_ASSERT(dhcpLayer->setMesageType(DHCP_ACK) == true, "Couldn't change message type");
 
-	opt = dhcpLayer->addOptionAfter(DHCPOPT_ROUTERS, 4, NULL, DHCPOPT_SUBNET_MASK);
-	PACKETPP_ASSERT(opt != NULL, "Couldn't add DHCPOPT_ROUTERS option");
 	IPv4Address newRouter(std::string("192.168.2.1"));
-	opt->setValueIpAddr(newRouter);
 
-	opt = dhcpLayer->addOptionAfter(DHCPOPT_DHCP_SERVER_IDENTIFIER, 4, NULL, DHCPOPT_DHCP_MESSAGE_TYPE);
-	PACKETPP_ASSERT(opt != NULL, "Couldn't add DHCPOPT_DHCP_SERVER_IDENTIFIER option");
-	opt->setValueIpAddr(newRouter);
+	opt = dhcpLayer->addOptionAfter(DhcpOptionBuilder(DHCPOPT_ROUTERS, newRouter), DHCPOPT_SUBNET_MASK);
+	PACKETPP_ASSERT(opt.isNull() == false, "Couldn't add DHCPOPT_ROUTERS option");
+
+	opt = dhcpLayer->addOptionAfter(DhcpOptionBuilder(DHCPOPT_DHCP_SERVER_IDENTIFIER, newRouter), DHCPOPT_DHCP_MESSAGE_TYPE);
+	PACKETPP_ASSERT(opt.isNull() == false, "Couldn't add DHCPOPT_DHCP_SERVER_IDENTIFIER option");
 
 	dhcpPacket.computeCalculateFields();
 
@@ -4702,7 +5377,7 @@ PACKETPP_TEST(DhcpEditTest)
 
 	PACKETPP_ASSERT(dhcpLayer->getMesageType() == DHCP_UNKNOWN_MSG_TYPE, "Managed to get message type after all options removed");
 
-	PACKETPP_ASSERT(dhcpLayer->addOption(DHCPOPT_END, 0, NULL) != NULL, "Couldn't set DHCPOPT_END");
+	PACKETPP_ASSERT(dhcpLayer->addOption(DhcpOptionBuilder(DHCPOPT_END, NULL, 0)).isNull() == false, "Couldn't set DHCPOPT_END");
 
 	PACKETPP_ASSERT(dhcpLayer->setMesageType(DHCP_UNKNOWN_MSG_TYPE) == false, "Managed to set message type to DHCP_UNKNOWN_MSG_TYPE");
 
@@ -4828,8 +5503,8 @@ PACKETPP_TEST(IgmpCreateAndEditTest)
 	MacAddress dstMac1(std::string("01:00:5e:00:00:01"));
 	MacAddress srcMac2(std::string("00:15:58:dc:a8:4d"));
 	MacAddress dstMac2(std::string("01:00:5e:7f:ff:fa"));
-	EthLayer ethLayer1(srcMac1, dstMac1, PCPP_ETHERTYPE_IP);
-	EthLayer ethLayer2(srcMac2, dstMac2, PCPP_ETHERTYPE_IP);
+	EthLayer ethLayer1(srcMac1, dstMac1);
+	EthLayer ethLayer2(srcMac2, dstMac2);
 
 	IPv4Address srcIp1(std::string("10.0.200.151"));
 	IPv4Address dstIp1(std::string("224.0.0.1"));
@@ -4955,9 +5630,7 @@ PACKETPP_TEST(Igmpv3ParsingTest)
 
 PACKETPP_TEST(Igmpv3QueryCreateAndEditTest)
 {
-	MacAddress srcMac(std::string("00:01:01:00:00:01"));
-	MacAddress dstMac(std::string("01:00:5e:00:00:09"));
-	EthLayer ethLayer(srcMac, dstMac, PCPP_ETHERTYPE_IP);
+	EthLayer ethLayer(MacAddress("00:01:01:00:00:01"), MacAddress("01:00:5e:00:00:09"));
 
 	IPv4Address srcIp(std::string("127.0.0.1"));
 	IPv4Address dstIp(std::string("224.0.0.9"));
@@ -5044,9 +5717,7 @@ PACKETPP_TEST(Igmpv3QueryCreateAndEditTest)
 
 PACKETPP_TEST(Igmpv3ReportCreateAndEditTest)
 {
-	MacAddress srcMac(std::string("00:01:01:00:00:02"));
-	MacAddress dstMac(std::string("01:00:5e:00:00:16"));
-	EthLayer ethLayer(srcMac, dstMac, PCPP_ETHERTYPE_IP);
+	EthLayer ethLayer(MacAddress("00:01:01:00:00:02"), MacAddress("01:00:5e:00:00:16"));
 
 	IPv4Address srcIp(std::string("127.0.0.1"));
 	IPv4Address dstIp(std::string("224.0.0.22"));
@@ -5142,13 +5813,1319 @@ PACKETPP_TEST(Igmpv3ReportCreateAndEditTest)
 	PACKETPP_TEST_PASSED;
 }
 
+PACKETPP_TEST(ParsePartialPacketTest)
+{
+	int buffer1Length = 0;
+	uint8_t* buffer1 = readFileIntoBuffer("PacketExamples/SSL-ClientHello1.dat", buffer1Length);
+	PACKETPP_ASSERT(!(buffer1 == NULL), "cannot read file SSL-ClientHello1.dat");
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/IGMPv1_1.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file IGMPv1_1.dat.dat");
+
+	int buffer3Length = 0;
+	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/TwoHttpRequests1.dat", buffer3Length);
+	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file TwoHttpRequests1.dat");
+
+	int buffer4Length = 0;
+	uint8_t* buffer4 = readFileIntoBuffer("PacketExamples/PPPoESession2.dat", buffer4Length);
+	PACKETPP_ASSERT(!(buffer4 == NULL), "cannot read file PPPoESession2.dat");
+
+	int buffer5Length = 0;
+	uint8_t* buffer5 = readFileIntoBuffer("PacketExamples/TwoHttpRequests2.dat", buffer5Length);
+	PACKETPP_ASSERT(!(buffer5 == NULL), "cannot read file TwoHttpRequests2.dat");
+
+	int buffer6Length = 0;
+	uint8_t* buffer6 = readFileIntoBuffer("PacketExamples/IcmpTimestampRequest.dat", buffer6Length);
+	PACKETPP_ASSERT(!(buffer6 == NULL), "cannot read file IcmpTimestampRequest.dat");
+
+	int buffer7Length = 0;
+	uint8_t* buffer7 = readFileIntoBuffer("PacketExamples/GREv0_2.dat", buffer7Length);
+	PACKETPP_ASSERT(!(buffer7 == NULL), "cannot read file GREv0_2.dat");
+
+
+	timeval time;
+	gettimeofday(&time, NULL);
+	RawPacket rawPacket1((const uint8_t*)buffer1, buffer1Length, time, true);
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true);
+	RawPacket rawPacket3((const uint8_t*)buffer3, buffer3Length, time, true);
+	RawPacket rawPacket4((const uint8_t*)buffer4, buffer4Length, time, true);
+	RawPacket rawPacket5((const uint8_t*)buffer5, buffer5Length, time, true);
+	RawPacket rawPacket6((const uint8_t*)buffer6, buffer6Length, time, true);
+	RawPacket rawPacket7((const uint8_t*)buffer7, buffer7Length, time, true);
+
+	Packet sslPacket(&rawPacket1, TCP);
+	Packet igmpPacket(&rawPacket2, IP);
+	Packet httpPacket(&rawPacket3, OsiModelTransportLayer);
+	Packet pppoePacket(&rawPacket4, OsiModelDataLinkLayer);
+	Packet httpPacket2(&rawPacket5, OsiModelPresentationLayer);
+	Packet icmpPacket(&rawPacket6, OsiModelNetworkLayer);
+	Packet grePacket(&rawPacket7, GRE);
+
+	PACKETPP_ASSERT(sslPacket.isPacketOfType(IPv4) == true, "ssl packet isn't of type IPv4");
+	PACKETPP_ASSERT(sslPacket.isPacketOfType(TCP) == true, "ssl packet isn't of type TCP");
+	PACKETPP_ASSERT(sslPacket.isPacketOfType(SSL) == false, "ssl packet is of type SSL");
+	PACKETPP_ASSERT(sslPacket.getLayerOfType<EthLayer>() != NULL, "couldn't fetch Eth layer for ssl packet");
+	PACKETPP_ASSERT(sslPacket.getLayerOfType<IPv4Layer>() != NULL, "couldn't fetch IPv4 layer for ssl packet");
+	PACKETPP_ASSERT(sslPacket.getLayerOfType<TcpLayer>() != NULL, "couldn't fetch TCP layer for ssl packet");
+	PACKETPP_ASSERT(sslPacket.getLayerOfType<TcpLayer>()->getNextLayer() == NULL, "layer after TCP layer isn't NULL for ssl packet");
+	PACKETPP_ASSERT(sslPacket.getLayerOfType<SSLHandshakeLayer>() == NULL, "managed to fetch SSL layer for ssl packet");
+	PACKETPP_ASSERT(sslPacket.getLayerOfType<PayloadLayer>() == NULL, "managed to fetch generic payload layer for ssl packet");
+
+	PACKETPP_ASSERT(igmpPacket.isPacketOfType(IPv4) == true, "igmp packet isn't of type IPv4");
+	PACKETPP_ASSERT(igmpPacket.isPacketOfType(Ethernet) == true, "igmp packet isn't of type Ethernet");
+	PACKETPP_ASSERT(igmpPacket.isPacketOfType(IGMP) == false, "igmp packet is of type IGMP");
+	PACKETPP_ASSERT(igmpPacket.getLayerOfType<EthLayer>() != NULL, "couldn't fetch Eth layer for igmp packet");
+	PACKETPP_ASSERT(igmpPacket.getLayerOfType<IPv4Layer>() != NULL, "couldn't fetch IPv4 layer for igmp packet");
+	PACKETPP_ASSERT(igmpPacket.getLayerOfType<IgmpV1Layer>() == NULL, "managed to fetch IGMPv1 layer for igmp packet");
+	PACKETPP_ASSERT(igmpPacket.getLayerOfType<PayloadLayer>() == NULL, "managed to fetch generic payload layer for igmp packet");
+
+	PACKETPP_ASSERT(httpPacket.isPacketOfType(IPv4) == true, "http packet isn't of type IPv4");
+	PACKETPP_ASSERT(httpPacket.isPacketOfType(Ethernet) == true, "http packet isn't of type Ethernet");
+	PACKETPP_ASSERT(httpPacket.isPacketOfType(TCP) == true, "http packet isn't of type TCP");
+	PACKETPP_ASSERT(httpPacket.isPacketOfType(HTTP) == false, "http packet is of type HTTP");
+	PACKETPP_ASSERT(httpPacket.getLayerOfType<EthLayer>() != NULL, "couldn't fetch Eth layer for http packet");
+	PACKETPP_ASSERT(httpPacket.getLayerOfType<IPv4Layer>() != NULL, "couldn't fetch IPv4 layer for http packet");
+	PACKETPP_ASSERT(httpPacket.getLayerOfType<TcpLayer>() != NULL, "couldn't fetch TCP layer for http packet");
+	PACKETPP_ASSERT(httpPacket.getLayerOfType<HttpRequestLayer>() == NULL, "managed to fetch HTTP request layer for http packet");
+	PACKETPP_ASSERT(httpPacket.getLayerOfType<PayloadLayer>() == NULL, "managed to fetch generic payload layer for http packet");
+
+	PACKETPP_ASSERT(pppoePacket.isPacketOfType(Ethernet) == true, "pppoe packet isn't of type Ethernet");
+	PACKETPP_ASSERT(pppoePacket.isPacketOfType(PPPoESession) == true, "pppoe packet isn't of type PPPoE");
+	PACKETPP_ASSERT(pppoePacket.isPacketOfType(IPv6) == false, "pppoe packet is of type IPv6");
+	PACKETPP_ASSERT(pppoePacket.isPacketOfType(UDP) == false, "pppoe packet is of type UDP");
+	PACKETPP_ASSERT(pppoePacket.getLayerOfType<EthLayer>() != NULL, "couldn't fetch Eth layer for pppoe packet");
+	PACKETPP_ASSERT(pppoePacket.getLayerOfType<PPPoESessionLayer>() != NULL, "couldn't fetch PPPoE session layer for pppoe packet");
+	PACKETPP_ASSERT(pppoePacket.getLayerOfType<IPv6Layer>() == NULL, "managed to fetch IPv6 layer for pppoe packet");
+
+	PACKETPP_ASSERT(httpPacket2.isPacketOfType(IPv4) == true, "http2 packet isn't of type IPv4");
+	PACKETPP_ASSERT(httpPacket2.isPacketOfType(Ethernet) == true, "http2 packet isn't of type Ethernet");
+	PACKETPP_ASSERT(httpPacket2.isPacketOfType(TCP) == true, "http2 packet isn't of type TCP");
+	PACKETPP_ASSERT(httpPacket2.isPacketOfType(HTTP) == false, "http2 packet is of type HTTP");
+	PACKETPP_ASSERT(httpPacket2.getLayerOfType<EthLayer>() != NULL, "couldn't fetch Eth layer for http2 packet");
+	PACKETPP_ASSERT(httpPacket2.getLayerOfType<IPv4Layer>() != NULL, "couldn't fetch IPv4 layer for http2 packet");
+	PACKETPP_ASSERT(httpPacket2.getLayerOfType<TcpLayer>() != NULL, "couldn't fetch TCP layer for http2 packet");
+	PACKETPP_ASSERT(httpPacket2.getLayerOfType<TcpLayer>()->getNextLayer() == NULL, "Next layer for TCP isn't NULL in http2 packet");
+	PACKETPP_ASSERT(httpPacket2.getLastLayer()->getProtocol() == TCP, "TCP isn't the last layer for http2 packet");
+	PACKETPP_ASSERT(httpPacket2.getLayerOfType<HttpRequestLayer>() == NULL, "managed to fetch HTTP request layer for http2 packet");
+	PACKETPP_ASSERT(httpPacket2.getLayerOfType<PayloadLayer>() == NULL, "managed to fetch generic payload layer for http2 packet");
+
+	PACKETPP_ASSERT(icmpPacket.isPacketOfType(IPv4) == true, "icmp packet isn't of type IPv4");
+	PACKETPP_ASSERT(icmpPacket.isPacketOfType(Ethernet) == true, "icmp packet isn't of type Ethernet");
+	PACKETPP_ASSERT(icmpPacket.isPacketOfType(ICMP) == true, "icmp packet isn't of type ICMP");
+	PACKETPP_ASSERT(icmpPacket.getLayerOfType<EthLayer>() != NULL, "couldn't fetch Eth layer for icmp packet");
+	PACKETPP_ASSERT(icmpPacket.getLayerOfType<IPv4Layer>() != NULL, "couldn't fetch IPv4 layer for icmp packet");
+	PACKETPP_ASSERT(icmpPacket.getLayerOfType<IcmpLayer>() != NULL, "couldn't fetch ICMP layer for icmp packet");
+
+	PACKETPP_ASSERT(grePacket.isPacketOfType(Ethernet) == true, "gre packet isn't of type Ethernet");
+	PACKETPP_ASSERT(grePacket.isPacketOfType(IPv4) == true, "gre packet isn't of type IPv4");
+	PACKETPP_ASSERT(grePacket.isPacketOfType(GREv0) == true, "gre packet isn't of type GREv0");
+	PACKETPP_ASSERT(grePacket.isPacketOfType(UDP) == false, "gre packet is of type UDP");
+	Layer* curLayer = grePacket.getFirstLayer();
+	PACKETPP_ASSERT(curLayer != NULL && curLayer->getProtocol() == Ethernet, "gre first layer isn't Ethernet");
+	curLayer = curLayer->getNextLayer();
+	PACKETPP_ASSERT(curLayer != NULL && curLayer->getProtocol() == IPv4, "gre second layer isn't IPv4");
+	curLayer = curLayer->getNextLayer();
+	PACKETPP_ASSERT(curLayer != NULL && curLayer->getProtocol() == GREv0, "gre third layer isn't GRE");
+	curLayer = curLayer->getNextLayer();
+	PACKETPP_ASSERT(curLayer == NULL, "found fourth layer for gre packet");
+
+	PACKETPP_TEST_PASSED;
+}
+
+PACKETPP_TEST(VxlanParsingAndCreationTest)
+{
+	int buffer1Length = 0;
+	uint8_t* buffer1 = readFileIntoBuffer("PacketExamples/Vxlan1.dat", buffer1Length);
+	PACKETPP_ASSERT(!(buffer1 == NULL), "cannot read file Vxlan1.dat");
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/Vxlan2.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file Vxlan2.dat");
+
+	timeval time;
+	gettimeofday(&time, NULL);
+	RawPacket rawPacket1((const uint8_t*)buffer1, buffer1Length, time, true);
+
+	Packet vxlanPacket(&rawPacket1);
+
+	// test vxlan parsing
+	VxlanLayer* vxlanLayer = vxlanPacket.getLayerOfType<VxlanLayer>();
+	PACKETPP_ASSERT(vxlanLayer != NULL, "VXLAN layer doesn't exist");
+	PACKETPP_ASSERT(vxlanLayer->getVNI() == 3000001, "VNI isn't 3000001");
+	PACKETPP_ASSERT(vxlanLayer->getVxlanHeader()->groupPolicyID == htons(100), "Group policy ID isn't 100");
+	PACKETPP_ASSERT(vxlanLayer->getVxlanHeader()->dontLearnFlag == 1, "Don't learn flag isn't set");
+	PACKETPP_ASSERT(vxlanLayer->getVxlanHeader()->gbpFlag == 1, "GBP flag isn't set");
+	PACKETPP_ASSERT(vxlanLayer->getVxlanHeader()->vniPresentFlag == 1, "VNI present flag isn't set");
+	PACKETPP_ASSERT(vxlanLayer->getVxlanHeader()->policyAppliedFlag == 1, "Policy applied flag isn't set");
+	PACKETPP_ASSERT(vxlanLayer->getNextLayer() != NULL, "Layer next to VXLAN is NULL");
+	PACKETPP_ASSERT(vxlanLayer->getNextLayer()->getProtocol() == Ethernet, "Layer next to VXLAN isn't Ethernet");
+
+	// edit vxlan fields
+	vxlanLayer->getVxlanHeader()->gbpFlag = 0;
+	vxlanLayer->getVxlanHeader()->dontLearnFlag = 0;
+	vxlanLayer->getVxlanHeader()->groupPolicyID = htons(32639);
+	vxlanLayer->setVNI(300);
+
+	vxlanPacket.computeCalculateFields();
+
+	// verify edited fields
+	PACKETPP_ASSERT(buffer2Length == vxlanPacket.getRawPacket()->getRawDataLen(), "Edited packet len (%d) is different than read packet len (%d)", vxlanPacket.getRawPacket()->getRawDataLen(), buffer2Length);
+	PACKETPP_ASSERT(memcmp(vxlanPacket.getRawPacket()->getRawData(), buffer2, vxlanPacket.getRawPacket()->getRawDataLen()) == 0, "Edited raw packet data after edit is different than expected");
+
+	// remove vxlan layer
+	PACKETPP_ASSERT(vxlanPacket.removeLayer(VXLAN) == true, "Couldn't remove vxlan layer");
+	vxlanPacket.computeCalculateFields();
+
+	// create new vxlan layer
+	VxlanLayer newVxlanLayer(3000001, 100, true, true, true);
+	PACKETPP_ASSERT(vxlanPacket.insertLayer(vxlanPacket.getLayerOfType<UdpLayer>(), &newVxlanLayer) == true, "Couldn't insert new vxlan layer");
+
+	// verify new vxlan layer
+	PACKETPP_ASSERT(buffer1Length == vxlanPacket.getRawPacket()->getRawDataLen(), "Generated packet len (%d) is different than read packet len (%d)", vxlanPacket.getRawPacket()->getRawDataLen(), buffer1Length);
+	PACKETPP_ASSERT(memcmp(vxlanPacket.getRawPacket()->getRawData(), buffer1, vxlanPacket.getRawPacket()->getRawDataLen()) == 0, "Generated raw packet data after edit is different than expected");
+
+	delete [] buffer2;
+
+	PACKETPP_TEST_PASSED;
+}
+
+
+PACKETPP_TEST(SipRequestLayerParsingTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer1Length = 0;
+	uint8_t* buffer1 = readFileIntoBuffer("PacketExamples/sip_req1.dat", buffer1Length);
+	PACKETPP_ASSERT(!(buffer1 == NULL), "cannot read file sip_req1.dat");
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/sip_req2.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file sip_req2.dat");
+
+	int buffer3Length = 0;
+	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/sip_req3.dat", buffer3Length);
+	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file sip_req3.dat");
+
+	int buffer4Length = 0;
+	uint8_t* buffer4 = readFileIntoBuffer("PacketExamples/sip_req4.dat", buffer4Length);
+	PACKETPP_ASSERT(!(buffer4 == NULL), "cannot read file sip_req4.dat");
+
+	RawPacket rawPacket1((const uint8_t*)buffer1, buffer1Length, time, true);
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true);
+	RawPacket rawPacket3((const uint8_t*)buffer3, buffer3Length, time, true);
+	RawPacket rawPacket4((const uint8_t*)buffer4, buffer4Length, time, true);
+
+	Packet sipReqPacket1(&rawPacket1);
+	Packet sipReqPacket2(&rawPacket2);
+	Packet sipReqPacket3(&rawPacket3);
+	Packet sipReqPacket4(&rawPacket4);
+
+	PACKETPP_ASSERT(sipReqPacket1.isPacketOfType(SIP) == true, "sipReqPacket1 isn't of type SIP");
+	PACKETPP_ASSERT(sipReqPacket1.isPacketOfType(SIPRequest) == true, "sipReqPacket1 isn't of type SIP request");
+
+	PACKETPP_ASSERT(sipReqPacket2.isPacketOfType(SIP) == true, "sipReqPacket2 isn't of type SIP");
+	PACKETPP_ASSERT(sipReqPacket2.isPacketOfType(SIPRequest) == true, "sipReqPacket2 isn't of type SIP request");
+
+	PACKETPP_ASSERT(sipReqPacket3.isPacketOfType(SIP) == true, "sipReqPacket3 isn't of type SIP");
+	PACKETPP_ASSERT(sipReqPacket3.isPacketOfType(SIPRequest) == true, "sipReqPacket3 isn't of type SIP request");
+
+	PACKETPP_ASSERT(sipReqPacket4.isPacketOfType(SIP) == true, "sipReqPacket4 isn't of type SIP");
+	PACKETPP_ASSERT(sipReqPacket4.isPacketOfType(SIPRequest) == true, "sipReqPacket4 isn't of type SIP request");
+
+	SipRequestLayer* sipReqLayer = sipReqPacket1.getLayerOfType<SipRequestLayer>();
+
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getMethod() == SipRequestLayer::SipINVITE, "SIP request1: method isn't INVITE, it's %d", sipReqLayer->getFirstLine()->getMethod());
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getUri() == "sip:francisco@bestel.com:55060", "SIP request1: URI is not as expected");
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getVersion() == "SIP/2.0", "SIP request1: version is not as expected");
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getSize() == 47, "SIP request1: first line size isn't 47");
+
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_FROM_FIELD) != NULL, "SIP request1: Cannot find field 'From'");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_FROM_FIELD)->getFieldValue() == "<sip:200.57.7.195:55061;user=phone>;tag=GR52RWG346-34", "SIP request1: Value of 'From' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_CONTACT_FIELD) != NULL, "SIP request1: Cannot find field 'Contact'");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_CONTACT_FIELD, 1) == NULL, "SIP request1: Found second instance of field 'Contact'");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_CONTACT_FIELD)->getFieldValue() == "<sip:200.57.7.195:5060>", "SIP request1: Value of 'From' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_VIA_FIELD) != NULL, "SIP request1: Cannot find field 'Via'");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_VIA_FIELD)->getFieldValue() == "SIP/2.0/UDP 200.57.7.195;branch=z9hG4bKff9b46fb055c0521cc24024da96cd290", "SIP request1: Value of first 'Via' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_VIA_FIELD, 1) != NULL, "SIP request1: Cannot find second field 'Via'");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_VIA_FIELD, 1)->getFieldValue() == "SIP/2.0/UDP 200.57.7.195:55061;branch=z9hG4bK291d90e31a47b225bd0ddff4353e9cc0", "SIP request1: Value of second 'Via' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_VIA_FIELD, 2) == NULL, "SIP request1: Found third instance of field 'Via'");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_VIA_FIELD, 100) == NULL, "SIP request1: Found 101 instance of field 'Via'");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName("BlaBla") == NULL, "SIP request1: Found a field which doesn't exist");
+	PACKETPP_ASSERT(sipReqLayer->getFieldCount() == 9, "SIP request1: Field count isn't 9");
+
+	PACKETPP_ASSERT(sipReqLayer->getFirstField()->getFieldName() == "Via", "SIP request1: First field isn't 'Via'");
+
+	PACKETPP_ASSERT(sipReqLayer->getHeaderLen() == 469, "SIP request1: Header len isn't 469, it's %d", (int)sipReqLayer->getHeaderLen());
+	PACKETPP_ASSERT(sipReqLayer->getLayerPayloadSize() == 229, "SIP request1: Layer payload size isn't 229, its %d", (int)sipReqLayer->getLayerPayloadSize());
+	PACKETPP_ASSERT(sipReqLayer->getContentLength() == 229, "SIP request1: Content length isn't 229");
+
+
+	sipReqLayer = sipReqPacket2.getLayerOfType<SipRequestLayer>();
+
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getMethod() == SipRequestLayer::SipCANCEL, "SIP request2: method isn't CANCEL, it's %d", sipReqLayer->getFirstLine()->getMethod());
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getUri() == "sip:echo@iptel.org", "SIP request2: URI is not as expected");
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getSize() == 35, "SIP request2: first line size isn't 35");
+
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_MAX_FORWARDS_FIELD) != NULL, "SIP request2: Cannot find field 'Max-Forwards'");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_MAX_FORWARDS_FIELD)->getFieldValue() == "70", "SIP request2: Value of 'Max-Forwards' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getNextField(sipReqLayer->getFieldByName(PCPP_SIP_MAX_FORWARDS_FIELD))->isEndOfHeader() == true, "SIP request2: field after 'Max-Forwards' isn't marked as end of header");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_CSEQ_FIELD) != NULL, "SIP request2: Cannot find field 'CSeq'");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_CSEQ_FIELD)->getFieldValue() == "2 CANCEL", "SIP request2: Value of 'CSeq' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_TO_FIELD) != NULL, "SIP request2: Cannot find field 'To'");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_TO_FIELD)->getFieldValue() == "<sip:echo@iptel.org>", "SIP request2: Value of 'To' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_TO_FIELD, 2) == NULL, "SIP request2: mistkaely found a second 'To' field");
+	PACKETPP_ASSERT(sipReqLayer->isHeaderComplete() == true, "SIP request2: header is not complete");
+
+
+	sipReqLayer = sipReqPacket3.getLayerOfType<SipRequestLayer>();
+
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getMethod() == SipRequestLayer::SipACK, "SIP request3: method isn't ACK, it's %d", sipReqLayer->getFirstLine()->getMethod());
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getUri() == "sip:admind@178.45.73.241", "SIP request3: URI is not as expected");
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getSize() == 38, "SIP request3: first line size isn't 38, it's %d", sipReqLayer->getFirstLine()->getSize());
+
+	PACKETPP_ASSERT(sipReqLayer->isHeaderComplete() == false, "SIP request3: header marked as complete");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_VIA_FIELD, 1) != NULL, "SIP request3: Cannot find second 'Via' field");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_VIA_FIELD, 1)->getFieldValue() == "SIP/2.0/UDP 213.192.59.78:5080;rport=5080;branch=z9hG4bKjBiNGaOX", "SIP request3: Value of second 'Via' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_CALL_ID_FIELD) != NULL, "SIP request3: Cannot find 'CAll-ID' field");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_CALL_ID_FIELD)->getFieldValue() == "2091060b-146f-e011-809a-0019cb53db77@admind-desktop", "SIP request3: Value of 'Call-ID' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName("P-hint") != NULL, "SIP request3: Cannot find 'P-hint' field");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName("P-hint")->getFieldValue() == "rr-enforced", "SIP request3: Value of 'P-hint' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getNextField(sipReqLayer->getFieldByName("P-hint")) == NULL, "SIP request3: field next of 'P-hint' isn't NULL");
+	PACKETPP_ASSERT(sipReqLayer->getContentLength() == 0, "SIP request3: Content length isn't 0");
+	PACKETPP_ASSERT(sipReqLayer->getFieldCount() == 9, "SIP request3: Field count isn't 9");
+
+
+	sipReqLayer = sipReqPacket4.getLayerOfType<SipRequestLayer>();
+
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getMethod() == SipRequestLayer::SipBYE, "SIP request4: method isn't BYE, it's %d", sipReqLayer->getFirstLine()->getMethod());
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getUri() == "sip:sipp@10.0.2.20:5060", "SIP request4: URI is not as expected");
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->getSize() == 37, "SIP request4: first line size isn't 37, it's %d", sipReqLayer->getFirstLine()->getSize());
+
+	PACKETPP_ASSERT(sipReqLayer->isHeaderComplete() == false, "SIP request4: header marked as complete");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_USER_AGENT_FIELD) != NULL, "SIP request4: Cannot find 'User-Agent' field");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_USER_AGENT_FIELD)->getFieldValue() == "FreeSWITCH-mod_sofia/1.6.12-20-b91a0a6~64bit", "SIP request4: Value of 'User-Agent' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_REASON_FIELD) != NULL, "SIP request4: Cannot find 'Reason' field");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_REASON_FIELD)->getFieldValue() == "Q.850;cause=16;text=\"NORMAL_CLEARING\"", "SIP request4: Value of 'Reason' is different than expected");
+	PACKETPP_ASSERT(sipReqLayer->getNextField(sipReqLayer->getFieldByName(PCPP_SIP_REASON_FIELD))->getFieldName() == "Content-Lengt", "SIP request4: name of last malformed field isn't as expected");
+	PACKETPP_ASSERT(sipReqLayer->getNextField(sipReqLayer->getFieldByName(PCPP_SIP_REASON_FIELD))->getFieldValue() == "", "SIP request4: value of last malformed field isn't empty");
+	PACKETPP_ASSERT(sipReqLayer->getFieldCount() == 11, "SIP request4: Field count isn't 11");
+//
+//	for (HeaderField* field = sipReqLayer->getFirstField(); field != NULL; field = sipReqLayer->getNextField(field))
+//	{
+//		printf("!!!%s!!!: !!!%s!!!\n", field->getFieldName().c_str(), field->getFieldValue().c_str());
+//	}
+
+	PACKETPP_TEST_PASSED;
+}
+
+
+PACKETPP_TEST(SipRequestLayerCreationTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer1Length = 0;
+	uint8_t* buffer1 = readFileIntoBuffer("PacketExamples/sip_req1.dat", buffer1Length);
+	PACKETPP_ASSERT(!(buffer1 == NULL), "cannot read file sip_req1.dat");
+
+	RawPacket rawPacket1((const uint8_t*)buffer1, buffer1Length, time, true);
+
+	Packet sipReqSamplePacket(&rawPacket1);
+
+	Packet newSipPacket;
+
+	EthLayer ethLayer(*sipReqSamplePacket.getLayerOfType<EthLayer>());
+	PACKETPP_ASSERT(newSipPacket.addLayer(&ethLayer), "Adding ethernet layer failed");
+
+	IPv4Layer ip4Layer;
+	ip4Layer = *(sipReqSamplePacket.getLayerOfType<IPv4Layer>());
+	PACKETPP_ASSERT(newSipPacket.addLayer(&ip4Layer), "Adding IPv4 layer failed");
+
+	UdpLayer udpLayer = *(sipReqSamplePacket.getLayerOfType<UdpLayer>());
+	PACKETPP_ASSERT(newSipPacket.addLayer(&udpLayer), "Adding UDP layer failed");
+
+	SipRequestLayer sipReqLayer(SipRequestLayer::SipINVITE, "sip:francisco@bestel.com:55060");
+
+	PACKETPP_ASSERT(sipReqLayer.addField(PCPP_SIP_CALL_ID_FIELD, "12013223@200.57.7.195") != NULL, "Couldn't add 'Call-ID' field");
+	PACKETPP_ASSERT(sipReqLayer.addField(PCPP_SIP_CONTENT_TYPE_FIELD, "application/sdp") != NULL, "Couldn't add 'Content-Type' field");
+	PACKETPP_ASSERT(sipReqLayer.addEndOfHeader(), "Couldn't add end-of-header field");
+	PACKETPP_ASSERT(sipReqLayer.insertField(NULL, PCPP_SIP_VIA_FIELD, "SIP/2.0/UDP 200.57.7.195:55061;branch=z9hG4bK291d90e31a47b225bd0ddff4353e9cc0") != NULL, "Couldn't add 2nd 'Via' field");
+	PACKETPP_ASSERT(sipReqLayer.insertField(NULL, PCPP_SIP_VIA_FIELD, "SIP/2.0/UDP 200.57.7.195;branch=z9hG4bKff9b46fb055c0521cc24024da96cd290") != NULL, "Couldn't add 1st 'Via' field");
+	HeaderField* callIDField = sipReqLayer.getFieldByName(PCPP_SIP_CALL_ID_FIELD);
+	PACKETPP_ASSERT(callIDField != NULL, "Couldn't find 'Call-ID' field");
+	HeaderField* newField = sipReqLayer.insertField(callIDField, PCPP_SIP_CSEQ_FIELD, "1 INVITE");
+	PACKETPP_ASSERT(newField != NULL, "Couldn't add 'CSeq' field");
+	newField = sipReqLayer.insertField(newField, PCPP_SIP_CONTACT_FIELD, "<sip:200.57.7.195:5060>");
+	PACKETPP_ASSERT(newField != NULL, "Couldn't add 'Contact' field");
+	HeaderField* secondViaField = sipReqLayer.getFieldByName(PCPP_SIP_VIA_FIELD, 0);
+	PACKETPP_ASSERT(secondViaField != NULL, "Couldn't find second 'Via' field");
+	newField = sipReqLayer.insertField(secondViaField, PCPP_SIP_FROM_FIELD, "<sip:200.57.7.195:55061;user=phone>;tag=GR52RWG346-34");
+	PACKETPP_ASSERT(newField != NULL, "Couldn't add 'From' field");
+	newField = sipReqLayer.insertField(newField, PCPP_SIP_TO_FIELD, "\"francisco@bestel.com\" <sip:francisco@bestel.com:55060>");
+	PACKETPP_ASSERT(newField != NULL, "Couldn't add 'To' field");
+	HeaderField* contentLengthField = sipReqLayer.setContentLength(229, PCPP_SIP_CONTENT_TYPE_FIELD);
+	PACKETPP_ASSERT(contentLengthField != NULL, "Couldn't set content length");
+	contentLengthField->setFieldValue("  229");
+
+
+	PACKETPP_ASSERT(newSipPacket.addLayer(&sipReqLayer), "Adding SIP request layer failed");
+
+	SipRequestLayer* samplePacketSipLayer = sipReqSamplePacket.getLayerOfType<SipRequestLayer>();
+	PayloadLayer payloadLayer(samplePacketSipLayer->getLayerPayload(), samplePacketSipLayer->getLayerPayloadSize(), true);
+	PACKETPP_ASSERT(newSipPacket.addLayer(&payloadLayer), "Adding SDP data failed");
+
+	newSipPacket.computeCalculateFields();
+
+	PACKETPP_ASSERT(buffer1Length == newSipPacket.getRawPacket()->getRawDataLen(), "Generated packet len (%d) is different than read packet len (%d)", newSipPacket.getRawPacket()->getRawDataLen(), buffer1Length);
+	PACKETPP_ASSERT(memcmp(newSipPacket.getRawPacket()->getRawData(), buffer1, newSipPacket.getRawPacket()->getRawDataLen()) == 0, "Generated raw packet data after edit is different than expected");
+
+	PACKETPP_TEST_PASSED;
+}
+
+
+PACKETPP_TEST(SipRequestLayerEditTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/sip_req2.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file sip_req2.dat");
+
+	int buffer3Length = 0;
+	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/sip_req3.dat", buffer3Length);
+	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file sip_req3.dat");
+
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true);
+	RawPacket rawPacket3((const uint8_t*)buffer3, buffer3Length, time, true);
+
+	Packet secondSipPacket(&rawPacket2);
+	Packet editedPacket(&rawPacket3);
+
+	SipRequestLayer* sipReqLayer = editedPacket.getLayerOfType<SipRequestLayer>();
+
+	PACKETPP_ASSERT(sipReqLayer != NULL, "Cannot find SIP request layer");
+
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->setMethod(SipRequestLayer::SipBYE) == true, "Couldn't set method to BYE");
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->setMethod(SipRequestLayer::SipREGISTER) == true, "Couldn't set method to REGISTER");
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->setMethod(SipRequestLayer::SipCANCEL) == true, "Couldn't set method to CANCEL");
+
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->setUri("sip:francisco@bestel.com:55060") == true, "Couldn't set URI - 1st change");
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->setUri("sip:echo@iptel.org") == true, "Couldn't set URI - 2nd change");
+
+	LoggerPP::getInstance().supressErrors();
+	PACKETPP_ASSERT(sipReqLayer->getFirstLine()->setUri("") == false, "Managed to set an empty URL");
+	LoggerPP::getInstance().enableErrors();
+
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_VIA_FIELD, 1)->setFieldValue("SIP/2.0/UDP 178.45.73.241:5060;branch=z9hG4bKb26f2c0b-146f-e011-809a-0019cb53db77;rport") == true,
+			"Couldn't change the value of 2nd 'Via' field");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_MAX_FORWARDS_FIELD)->setFieldValue("70") == true, "Couldn't change the value of 2nd 'Max-Forwards' field");
+	PACKETPP_ASSERT(sipReqLayer->removeField(PCPP_SIP_VIA_FIELD, 0) == true, "Couldn't remove 1st 'Via' field");
+	PACKETPP_ASSERT(sipReqLayer->removeField(PCPP_SIP_RECORD_ROUTE_FIELD) == true, "Couldn't remove 'Record-Route' field");
+	PACKETPP_ASSERT(sipReqLayer->removeField("P-hint") == true, "Couldn't remove 'P-hint' field");
+	PACKETPP_ASSERT(sipReqLayer->addEndOfHeader() != NULL, "Couldn't add end-of-header");
+	PACKETPP_ASSERT(sipReqLayer->setContentLength(0, PCPP_SIP_TO_FIELD) != NULL, "Cannot set content-length field");
+	PACKETPP_ASSERT(sipReqLayer->removeField(PCPP_SIP_CALL_ID_FIELD) == true, "Couldn't remove 'Call-ID' field");
+	PACKETPP_ASSERT(sipReqLayer->removeField(PCPP_SIP_CSEQ_FIELD) == true, "Couldn't remove 'CSeq' field");
+	PACKETPP_ASSERT(sipReqLayer->insertField(PCPP_SIP_FROM_FIELD, PCPP_SIP_CALL_ID_FIELD, "2091060b-146f-e011-809a-0019cb53db77@admind-desktop") != NULL, "Couldn't re-add 'Call-ID' field");
+	PACKETPP_ASSERT(sipReqLayer->insertField("", PCPP_SIP_CSEQ_FIELD, "2 CANCEL") != NULL, "Couldn't re-add 'CSeq' field");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_FROM_FIELD)->setFieldValue("\"sam netmon \" <sip:admind@178.45.73.241>;tag=bc86060b-146f-e011-809a-0019cb53db77") == true, "Couldn't change the value of 'From' field");
+	PACKETPP_ASSERT(sipReqLayer->getFieldByName(PCPP_SIP_TO_FIELD)->setFieldValue("<sip:echo@iptel.org>") == true, "Couldn't change the value of 'To' field");
+
+	editedPacket.computeCalculateFields();
+
+	SipRequestLayer* secondSipReqLayer = secondSipPacket.getLayerOfType<SipRequestLayer>();
+	secondSipReqLayer->getFieldByName(PCPP_SIP_MAX_FORWARDS_FIELD)->setFieldValue(" 70");
+
+	PACKETPP_ASSERT(secondSipReqLayer->getHeaderLen() == sipReqLayer->getHeaderLen(), "Edited layer len (%d) isn't as expected (%d)", (int)sipReqLayer->getHeaderLen(), (int)secondSipReqLayer->getHeaderLen());
+	PACKETPP_ASSERT(secondSipReqLayer->getFirstLine()->getSize() == sipReqLayer->getFirstLine()->getSize(), "Edited first line length (%d) isn't as expected (%d)", sipReqLayer->getFirstLine()->getSize(), secondSipReqLayer->getFirstLine()->getSize());
+	PACKETPP_ASSERT(secondSipReqLayer->getFirstLine()->getMethod() == sipReqLayer->getFirstLine()->getMethod(), "Method of edited packet is different than expected");
+	PACKETPP_ASSERT(secondSipReqLayer->getFirstLine()->getUri() == sipReqLayer->getFirstLine()->getUri(), "URI of edited packet is different than expected");
+	PACKETPP_ASSERT(secondSipReqLayer->getFirstLine()->getVersion() == sipReqLayer->getFirstLine()->getVersion(), "Version of edited packet is different than expected");
+	PACKETPP_ASSERT(secondSipReqLayer->getFieldCount() == sipReqLayer->getFieldCount(), "Number of header fields in edited packet is not as expected");
+	PACKETPP_ASSERT(memcmp(secondSipReqLayer->getData(), sipReqLayer->getData(), secondSipReqLayer->getHeaderLen()) == 0, "Edited raw data is different than expected");
+
+	PACKETPP_TEST_PASSED;
+}
+
+
+PACKETPP_TEST(SipResponseLayerParsingTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer1Length = 0;
+	uint8_t* buffer1 = readFileIntoBuffer("PacketExamples/sip_resp1.dat", buffer1Length);
+	PACKETPP_ASSERT(!(buffer1 == NULL), "cannot read file sip_resp1.dat");
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/sip_resp2.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file sip_resp2.dat");
+
+	int buffer3Length = 0;
+	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/sip_resp3.dat", buffer3Length);
+	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file sip_resp3.dat");
+
+	int buffer4Length = 0;
+	uint8_t* buffer4 = readFileIntoBuffer("PacketExamples/sip_resp4.dat", buffer4Length);
+	PACKETPP_ASSERT(!(buffer4 == NULL), "cannot read file sip_resp4.dat");
+
+	int buffer7Length = 0;
+	uint8_t* buffer7 = readFileIntoBuffer("PacketExamples/sip_resp7.dat", buffer7Length);
+	PACKETPP_ASSERT(!(buffer7 == NULL), "cannot read file sip_resp7.dat");
+
+	RawPacket rawPacket1((const uint8_t*)buffer1, buffer1Length, time, true);
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true);
+	RawPacket rawPacket3((const uint8_t*)buffer3, buffer3Length, time, true);
+	RawPacket rawPacket4((const uint8_t*)buffer4, buffer4Length, time, true);
+	RawPacket rawPacket7((const uint8_t*)buffer7, buffer7Length, time, true);
+
+	Packet sipRespPacket1(&rawPacket1);
+	Packet sipRespPacket2(&rawPacket2);
+	Packet sipRespPacket3(&rawPacket3);
+	Packet sipRespPacket4(&rawPacket4);
+	Packet sipRespPacket7(&rawPacket7);
+
+	PACKETPP_ASSERT(sipRespPacket1.isPacketOfType(SIP) == true, "sipRespPacket1 isn't of type SIP");
+	PACKETPP_ASSERT(sipRespPacket1.isPacketOfType(SIPResponse) == true, "sipRespPacket1 isn't of type SIP response");
+
+	PACKETPP_ASSERT(sipRespPacket2.isPacketOfType(SIP) == true, "sipRespPacket2 isn't of type SIP");
+	PACKETPP_ASSERT(sipRespPacket2.isPacketOfType(SIPResponse) == true, "sipRespPacket2 isn't of type SIP response");
+
+	PACKETPP_ASSERT(sipRespPacket3.isPacketOfType(SIP) == true, "sipRespPacket3 isn't of type SIP");
+	PACKETPP_ASSERT(sipRespPacket3.isPacketOfType(SIPResponse) == true, "sipRespPacket3 isn't of type SIP response");
+
+	PACKETPP_ASSERT(sipRespPacket4.isPacketOfType(SIP) == true, "sipRespPacket4 isn't of type SIP");
+	PACKETPP_ASSERT(sipRespPacket4.isPacketOfType(SIPResponse) == true, "sipRespPacket4 isn't of type SIP response");
+
+	PACKETPP_ASSERT(sipRespPacket7.isPacketOfType(SIP) == true, "sipRespPacket7 isn't of type SIP");
+	PACKETPP_ASSERT(sipRespPacket7.isPacketOfType(SIPResponse) == true, "sipRespPacket7 isn't of type SIP response");
+
+	SipResponseLayer* sipRespLayer = sipRespPacket1.getLayerOfType<SipResponseLayer>();
+
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCode() == SipResponseLayer::Sip100Trying, "SIP response1: status code isn't 100 Trying, it's %d", sipRespLayer->getFirstLine()->getStatusCode());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCodeAsInt() == 100, "SIP response1: status code as int isn't 100");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCodeString() == "Trying", "SIP response1: status code as string isn't 'Trying', it's '%s'", sipRespLayer->getFirstLine()->getStatusCodeString().c_str());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getVersion() == "SIP/2.0", "SIP response1: protocol version isn't 'SIP/2.0', it's '%s'", sipRespLayer->getFirstLine()->getVersion().c_str());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getSize() == 20, "SIP response1: first line size isn't 20, it's %d", sipRespLayer->getFirstLine()->getSize());
+
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_FROM_FIELD) != NULL, "SIP response1: Cannot find field 'From'");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_FROM_FIELD)->getFieldValue() == "<sip:200.57.7.195:55061;user=phone>;tag=GR52RWG346-34", "SIP response1: Value of 'From' is different than expected");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_CALL_ID_FIELD) != NULL, "SIP response1: Cannot find field 'Call-ID'");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_CALL_ID_FIELD)->getFieldValue() == "12013223@200.57.7.195", "SIP response1: Value of 'Call-ID' is different than expected");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_SERVER_FIELD) != NULL, "SIP response1: Cannot find field 'Server'");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_SERVER_FIELD)->getFieldValue() == "X-Lite release 1103m", "SIP response1: Value of 'Server' is different than expected");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_CONTENT_LENGTH_FIELD) != NULL, "SIP response1: Cannot find field 'Content-Length'");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_CONTENT_LENGTH_FIELD)->getFieldValue() == "0", "SIP response1: Value of 'Content-Length' isn't '0'");
+	PACKETPP_ASSERT(sipRespLayer->getContentLength() == 0, "SIP response1: content length isn't 0");
+
+
+	sipRespLayer = sipRespPacket2.getLayerOfType<SipResponseLayer>();
+
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCode() == SipResponseLayer::Sip180Ringing, "SIP response2: status code isn't 180 Ringing, it's %d", sipRespLayer->getFirstLine()->getStatusCode());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCodeAsInt() == 180, "SIP response2: status code as int isn't 180");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCodeString() == "Ringing", "SIP response2: status code as string isn't 'Ringing', it's '%s'", sipRespLayer->getFirstLine()->getStatusCodeString().c_str());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getVersion() == "SIP/2.0", "SIP response2: protocol version isn't 'SIP/2.0', it's '%s'", sipRespLayer->getFirstLine()->getVersion().c_str());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getSize() == 21, "SIP response2: first line size isn't 21, it's %d", sipRespLayer->getFirstLine()->getSize());
+
+	PACKETPP_ASSERT(sipRespLayer->getFirstField()->getFieldName() == PCPP_SIP_VIA_FIELD, "SIP response2: first field isn't 'Via'");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_VIA_FIELD) != NULL, "SIP response2: Cannot find field 'Via'");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_VIA_FIELD)->getFieldValue() == "SIP/2.0/UDP 200.57.7.195;branch=z9hG4bKff9b46fb055c0521cc24024da96cd290", "SIP response2: Value of first 'Via' is different than expected");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_CSEQ_FIELD) != NULL, "SIP response2: Cannot find field 'CSeq'");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_CSEQ_FIELD)->getFieldValue() == "1 INVITE", "SIP response2: Value of 'CSeq' is different than expected");
+	PACKETPP_ASSERT(sipRespLayer->getContentLength() == 0, "SIP response2: content length isn't 0");
+
+
+
+	sipRespLayer = sipRespPacket3.getLayerOfType<SipResponseLayer>();
+
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCode() == SipResponseLayer::Sip200OK, "SIP response3: status code isn't 200 OK, it's %d", sipRespLayer->getFirstLine()->getStatusCode());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCodeAsInt() == 200, "SIP response3: status code as int isn't 200");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCodeString() == "Ok", "SIP response3: status code as string isn't 'Ok', it's '%s'", sipRespLayer->getFirstLine()->getStatusCodeString().c_str());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getVersion() == "SIP/2.0", "SIP response3: protocol version isn't 'SIP/2.0', it's '%s'", sipRespLayer->getFirstLine()->getVersion().c_str());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getSize() == 16, "SIP response3: first line size isn't 16, it's %d", sipRespLayer->getFirstLine()->getSize());
+
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_CONTENT_TYPE_FIELD) != NULL, "SIP response3: Cannot find field 'Content-Type'");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_CONTENT_TYPE_FIELD)->getFieldValue() == "application/sdp", "SIP response3: Value of first 'Content-Type' is different than expected");
+	PACKETPP_ASSERT(sipRespLayer->getContentLength() == 298, "SIP response3: content length isn't 298");
+
+
+	sipRespLayer = sipRespPacket4.getLayerOfType<SipResponseLayer>();
+
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCode() == SipResponseLayer::Sip401Unauthorized, "SIP response4: status code isn't 401 Unauthorized, it's %d", sipRespLayer->getFirstLine()->getStatusCode());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCodeAsInt() == 401, "SIP response4: status code as int isn't 401");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCodeString() == "Unauthorized", "SIP response4: status code as string isn't 'Unauthorized', it's '%s'", sipRespLayer->getFirstLine()->getStatusCodeString().c_str());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getVersion() == "SIP/2.0", "SIP response4: protocol version isn't 'SIP/2.0', it's '%s'", sipRespLayer->getFirstLine()->getVersion().c_str());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getSize() == 26, "SIP response4: first line size isn't 26, it's %d", sipRespLayer->getFirstLine()->getSize());
+
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_WWW_AUTHENTICATE_FIELD) != NULL, "SIP response4: Cannot find field 'WWW-Authenticate'");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_WWW_AUTHENTICATE_FIELD)->getFieldValue() == "Digest  realm=\"ims.hom\",nonce=\"021fa2db5ff06518\",opaque=\"627f7bb95d5e2dcd\",algorithm=MD5,qop=\"auth\"", "SIP response4: Value of first 'WWW-Authenticate' is different than expected");
+	PACKETPP_ASSERT(sipRespLayer->getContentLength() == 0, "SIP response4: content length isn't 0");
+
+
+	sipRespLayer = sipRespPacket7.getLayerOfType<SipResponseLayer>();
+
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCode() == SipResponseLayer::Sip503ServiceUnavailable, "SIP response7: status code isn't 503 Service Unavailable, it's %d", sipRespLayer->getFirstLine()->getStatusCode());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCodeAsInt() == 503, "SIP response7: status code as int isn't 503");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCodeString() == "Service Unavailable", "SIP response7: status code as string isn't 'Service Unavailable', it's '%s'", sipRespLayer->getFirstLine()->getStatusCodeString().c_str());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getVersion() == "SIP/2.0", "SIP response7: protocol version isn't 'SIP/2.0', it's '%s'", sipRespLayer->getFirstLine()->getVersion().c_str());
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getSize() == 33, "SIP response7: first line size isn't 33, it's %d", sipRespLayer->getFirstLine()->getSize());
+
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_RETRY_AFTER_FIELD) != NULL, "SIP response7: Cannot find field 'Retry-After'");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_RETRY_AFTER_FIELD)->getFieldValue() == "0", "SIP response7: Value of first 'Retry-After' is different than expected");
+	PACKETPP_ASSERT(sipRespLayer->getContentLength() == 0, "SIP response7: content length isn't 0");
+
+	PACKETPP_TEST_PASSED;
+}
+
+PACKETPP_TEST(SipResponseLayerCreationTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer6Length = 0;
+	uint8_t* buffer6 = readFileIntoBuffer("PacketExamples/sip_resp6.dat", buffer6Length);
+	PACKETPP_ASSERT(!(buffer6 == NULL), "cannot read file sip_resp6.dat");
+
+	RawPacket rawPacket((const uint8_t*)buffer6, buffer6Length, time, true);
+
+	Packet sipRespSamplePacket(&rawPacket);
+
+	Packet newSipPacket;
+
+	EthLayer ethLayer(*sipRespSamplePacket.getLayerOfType<EthLayer>());
+	PACKETPP_ASSERT(newSipPacket.addLayer(&ethLayer), "Adding ethernet layer failed");
+
+	IPv4Layer ip4Layer;
+	ip4Layer = *(sipRespSamplePacket.getLayerOfType<IPv4Layer>());
+	PACKETPP_ASSERT(newSipPacket.addLayer(&ip4Layer), "Adding IPv4 layer failed");
+
+	UdpLayer udpLayer = *(sipRespSamplePacket.getLayerOfType<UdpLayer>());
+	PACKETPP_ASSERT(newSipPacket.addLayer(&udpLayer), "Adding UDP layer failed");
+
+	SipResponseLayer sipRespLayer(SipResponseLayer::Sip504ServerTimeout);
+
+	PACKETPP_ASSERT(sipRespLayer.addField(PCPP_SIP_FROM_FIELD, "<sip:user103@ims.hom>;tag=2054531660") != NULL, "Couldn't add 'From' field");
+	PACKETPP_ASSERT(sipRespLayer.addField(PCPP_SIP_CSEQ_FIELD, "1 REGISTER") != NULL, "Couldn't add 'CSeq' field");
+	HeaderField* contentLengthField = sipRespLayer.setContentLength(0, PCPP_SIP_CSEQ_FIELD);
+	PACKETPP_ASSERT(contentLengthField != NULL, "Couldn't set content length");
+	contentLengthField->setFieldValue(" 0");
+	PACKETPP_ASSERT(sipRespLayer.addEndOfHeader() != NULL, "Couldn't set end-of-header");
+	PACKETPP_ASSERT(sipRespLayer.insertField(NULL, PCPP_SIP_CALL_ID_FIELD, "93803593") != NULL, "Couldn't add 'Call-ID' field");
+	PACKETPP_ASSERT(sipRespLayer.insertField(NULL, PCPP_SIP_VIA_FIELD, "SIP/2.0/UDP 10.3.160.214:5060;rport=5060;received=10.3.160.214;branch=z9hG4bK19266132") != NULL, "Couldn't add 'Via' field");
+	HeaderField* fromField = sipRespLayer.getFieldByName(PCPP_SIP_FROM_FIELD);
+	PACKETPP_ASSERT(fromField != NULL, "Couldn't find recently added 'From' field");
+	PACKETPP_ASSERT(sipRespLayer.insertField(fromField, PCPP_SIP_TO_FIELD, "<sip:user103@ims.hom>;tag=z9hG4bKPjoKb0QlsN0Z-v4iW63WRm5UfjLn.Gm81V") != NULL, "Couldn't add 'To' field");
+
+	PACKETPP_ASSERT(newSipPacket.addLayer(&sipRespLayer), "Adding SIP response layer failed");
+
+	newSipPacket.computeCalculateFields();
+
+	newSipPacket.getLayerOfType<UdpLayer>()->getUdpHeader()->headerChecksum = 0xced8;
+
+
+	PACKETPP_ASSERT(buffer6Length == newSipPacket.getRawPacket()->getRawDataLen(), "Generated packet len (%d) is different than read packet len (%d)", newSipPacket.getRawPacket()->getRawDataLen(), buffer6Length);
+	PACKETPP_ASSERT(memcmp(newSipPacket.getRawPacket()->getRawData(), buffer6, newSipPacket.getRawPacket()->getRawDataLen()) == 0, "Generated raw packet data after edit is different than expected");
+
+	PACKETPP_TEST_PASSED;
+}
+
+PACKETPP_TEST(SipResponseLayerEditTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer3Length = 0;
+	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/sip_resp3.dat", buffer3Length);
+	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file sip_resp3.dat");
+
+	int buffer4Length = 0;
+	uint8_t* buffer4 = readFileIntoBuffer("PacketExamples/sip_resp4.dat", buffer4Length);
+	PACKETPP_ASSERT(!(buffer4 == NULL), "cannot read file sip_resp4.dat");
+
+	RawPacket rawPacket3((const uint8_t*)buffer3, buffer3Length, time, true);
+	RawPacket rawPacket4((const uint8_t*)buffer4, buffer4Length, time, true);
+
+	Packet editedPacket(&rawPacket3);
+	Packet secondSipPacket(&rawPacket4);
+
+	SipResponseLayer* sipRespLayer = editedPacket.getLayerOfType<SipResponseLayer>();
+
+	PACKETPP_ASSERT(sipRespLayer != NULL, "Cannot find SIP response layer");
+
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->setStatusCode(SipResponseLayer::Sip202Accepted) == true, "Couldn't set status code to 202");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCode() == SipResponseLayer::Sip202Accepted, "Status code is not really 202");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getSize() == 22, "First line length after changing to 202 isn't 22");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->setStatusCode(SipResponseLayer::Sip415UnsupportedMediaType) == true, "Couldn't set status code to 415");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCode() == SipResponseLayer::Sip415UnsupportedMediaType, "Status code is not really 415");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getSize() == 36, "First line length after changing to 415 isn't 36");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->setStatusCode(SipResponseLayer::Sip603Decline) == true, "Couldn't set method to 603");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCode() == SipResponseLayer::Sip603Decline, "Status code is not really 603");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getSize() == 21, "First line length after changing to 603 isn't 21");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->setStatusCode(SipResponseLayer::Sip603Decline, "Some other string") == true, "Couldn't set method to 603 with other string");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCode() == SipResponseLayer::Sip603Decline, "Status code is not really 603");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getSize() == 31, "First line length after changing to 603 other string isn't 31");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->setStatusCode(SipResponseLayer::Sip401Unauthorized) == true, "Couldn't set method to 401");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getStatusCode() == SipResponseLayer::Sip401Unauthorized, "Status code is not really 401");
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->getSize() == 26, "First line length after changing to 401 isn't 26");
+
+	LoggerPP::getInstance().supressErrors();
+	PACKETPP_ASSERT(sipRespLayer->getFirstLine()->setStatusCode(SipResponseLayer::SipStatusCodeUnknown) == false, "Managed to set an unknown status code");
+	LoggerPP::getInstance().enableErrors();
+
+	PACKETPP_ASSERT(sipRespLayer->removeField(PCPP_SIP_VIA_FIELD, 1) == true, "Couldn't remove 2nd 'Via' field");
+	PACKETPP_ASSERT(sipRespLayer->removeField(PCPP_SIP_CONTACT_FIELD) == true, "Couldn't remove 'Contact' field");
+	PACKETPP_ASSERT(sipRespLayer->removeField(PCPP_SIP_CALL_ID_FIELD) == true, "Couldn't remove 'Call-ID' field");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_VIA_FIELD)->setFieldValue("SIP/2.0/UDP 10.3.160.214:5060;rport=5060;received=10.3.160.214;branch=z9hG4bK758266975") == true, "Couldn't set value for 'Via' field");
+	PACKETPP_ASSERT(sipRespLayer->removeField(PCPP_SIP_CONTENT_TYPE_FIELD) == true, "Couldn't remove 'Content-Type' field");
+	PACKETPP_ASSERT(sipRespLayer->removeField(PCPP_SIP_SERVER_FIELD) == true, "Couldn't remove 'Server' field");
+	PACKETPP_ASSERT(sipRespLayer->setContentLength(0) != NULL, "Couldn't set content-length to 0");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_FROM_FIELD)->setFieldValue("<sip:user3@ims.hom>;tag=1597735002") == true, "Cannot update 'From' field value");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_TO_FIELD)->setFieldValue("<sip:user3@ims.hom>;tag=z9hG4bKPjNwtzXu2EwWIjxR8qftv00jzO9arV-iyh") == true, "Cannot update 'To' field value");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_CSEQ_FIELD)->setFieldValue("1 REGISTER") == true, "Cannot update 'CSeq' field value");
+	PACKETPP_ASSERT(sipRespLayer->insertField(PCPP_SIP_CSEQ_FIELD, PCPP_SIP_WWW_AUTHENTICATE_FIELD,
+			"Digest  realm=\"ims.hom\",nonce=\"021fa2db5ff06518\",opaque=\"627f7bb95d5e2dcd\",algorithm=MD5,qop=\"auth\"") != NULL, "Can't add 'WWW-Authenticate' field");
+	PACKETPP_ASSERT(sipRespLayer->insertField(PCPP_SIP_VIA_FIELD, PCPP_SIP_CALL_ID_FIELD, "434981653") != NULL, "Can't add 'Call-ID' field");
+	PACKETPP_ASSERT(sipRespLayer->getFieldByName(PCPP_SIP_CONTENT_LENGTH_FIELD)->setFieldValue(" 0") == true, "Couldn't set 'Content-Length' field value to ' 0'");
+
+	SipResponseLayer* secondSipRespLayer = secondSipPacket.getLayerOfType<SipResponseLayer>();
+
+	PACKETPP_ASSERT(secondSipRespLayer->getHeaderLen() == sipRespLayer->getHeaderLen(), "Edited layer len (%d) isn't as expected (%d)", (int)sipRespLayer->getHeaderLen(), (int)secondSipRespLayer->getHeaderLen());
+	PACKETPP_ASSERT(secondSipRespLayer->getFirstLine()->getSize() == sipRespLayer->getFirstLine()->getSize(), "Edited first line length (%d) isn't as expected (%d)", sipRespLayer->getFirstLine()->getSize(), secondSipRespLayer->getFirstLine()->getSize());
+	PACKETPP_ASSERT(secondSipRespLayer->getFirstLine()->getStatusCode() == sipRespLayer->getFirstLine()->getStatusCode(), "Status code of edited packet is different than expected");
+	PACKETPP_ASSERT(secondSipRespLayer->getFieldCount() == sipRespLayer->getFieldCount(), "Number of header fields in edited packet is not as expected");
+	PACKETPP_ASSERT(memcmp(secondSipRespLayer->getData(), sipRespLayer->getData(), secondSipRespLayer->getHeaderLen()) == 0, "Edited raw data is different than expected");
+
+	PACKETPP_TEST_PASSED;
+}
+
+PACKETPP_TEST(SdpLayerParsingTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer1Length = 0;
+	uint8_t* buffer1 = readFileIntoBuffer("PacketExamples/sip_req1.dat", buffer1Length);
+	PACKETPP_ASSERT(!(buffer1 == NULL), "cannot read file sip_req1.dat");
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/sdp.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file sdp.dat");
+
+	RawPacket rawPacket1((const uint8_t*)buffer1, buffer1Length, time, true);
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true);
+
+	Packet sdpPacket(&rawPacket1);
+	Packet sdpPacket2(&rawPacket2);
+
+	PACKETPP_ASSERT(sdpPacket.isPacketOfType(SDP) == true, "Packet is not of type SDP");
+	SdpLayer* sdpLayer = sdpPacket.getLayerOfType<SdpLayer>();
+	PACKETPP_ASSERT(sdpLayer != NULL, "SDP layer is null");
+
+	PACKETPP_ASSERT(sdpLayer->getFieldCount() == 11, "SDP field count isn't 11");
+
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_PROTOCOL_VERSION_FIELD) != NULL, "Cannot find v= field");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_PROTOCOL_VERSION_FIELD)->getFieldValue() == "0", "Protocol version isn't 0");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_ORIGINATOR_FIELD) != NULL, "Cannot find o= field");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_ORIGINATOR_FIELD)->getFieldValue() == "Clarent 120386 120387 IN IP4 200.57.7.196", "Wrong originator value");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_MEDIA_NAME_FIELD) != NULL, "Cannot find m= field");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_MEDIA_NAME_FIELD)->getFieldValue() == "audio 40376 RTP/AVP 8 18 4 0", "Wrong media name value");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_MEDIA_ATTRIBUTE_FIELD) != NULL, "Cannot find 1st a= field");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_MEDIA_ATTRIBUTE_FIELD)->getFieldValue() == "rtpmap:8 PCMA/8000", "Wrong 1st media attr value");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_MEDIA_ATTRIBUTE_FIELD, 2) != NULL, "Cannot find 3rd a= field");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_MEDIA_ATTRIBUTE_FIELD, 2)->getFieldValue() == "rtpmap:4 G723/8000", "Wrong 3rd media attr value");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_MEDIA_ATTRIBUTE_FIELD, 4) != NULL, "Cannot find 4th a= field");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_MEDIA_ATTRIBUTE_FIELD, 4)->getFieldValue() == "SendRecv", "Wrong 5th media attr value");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_MEDIA_ATTRIBUTE_FIELD, 5) == NULL, "Falsly found 6th a= field");
+
+	PACKETPP_ASSERT(sdpLayer->getOwnerIPv4Address() == IPv4Address(std::string("200.57.7.196")), "Owner IP address isn't 200.57.7.196");
+	PACKETPP_ASSERT(sdpLayer->getMediaPort("audio") == 40376, "Audio port isn't 40376");
+
+	PACKETPP_ASSERT(sdpPacket2.isPacketOfType(SDP) == true, "Packet2 is not of type SDP");
+	sdpLayer = sdpPacket2.getLayerOfType<SdpLayer>();
+	PACKETPP_ASSERT(sdpLayer != NULL, "SDP layer is null in packet2");
+
+	PACKETPP_ASSERT(sdpLayer->getFieldCount() == 18, "SDP field count isn't 18 in packet2");
+
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_CONNECTION_INFO_FIELD) != NULL, "Cannot find c= field in packet2");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_CONNECTION_INFO_FIELD)->getFieldValue() == "IN IP4 10.33.6.100", "Wrong connection info value in packet2");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_TIME_FIELD) != NULL, "Cannot find t= field in packet2");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_TIME_FIELD)->getFieldValue() == "0 0", "Wrong time value in packet2");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_SESSION_NAME_FIELD) != NULL, "Cannot find s= field in packet2");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_SESSION_NAME_FIELD)->getFieldValue() == "Phone-Call", "Wrong session name in packet2");
+
+	PACKETPP_ASSERT(sdpLayer->getOwnerIPv4Address() == IPv4Address(std::string("10.33.6.100")), "Owner IP address isn't 10.33.6.100 in packet2");
+	PACKETPP_ASSERT(sdpLayer->getMediaPort("audio") == 6010, "Audio port isn't 6010 in packet2");
+	PACKETPP_ASSERT(sdpLayer->getMediaPort("image") == 6012, "Image port isn't 6012 in packet2");
+
+	PACKETPP_TEST_PASSED;
+}
+
+PACKETPP_TEST(SdpLayerCreationTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer1Length = 0;
+	uint8_t* buffer1 = readFileIntoBuffer("PacketExamples/sdp.dat", buffer1Length);
+	PACKETPP_ASSERT(!(buffer1 == NULL), "cannot read file sdp.dat");
+
+	RawPacket rawPacket((const uint8_t*)buffer1, buffer1Length, time, true);
+
+	Packet sdpPacket(&rawPacket);
+
+	Packet newSdpPacket;
+
+	EthLayer ethLayer(*sdpPacket.getLayerOfType<EthLayer>());
+	PACKETPP_ASSERT(newSdpPacket.addLayer(&ethLayer), "Adding ethernet layer failed");
+
+	IPv4Layer ip4Layer;
+	ip4Layer = *(sdpPacket.getLayerOfType<IPv4Layer>());
+	PACKETPP_ASSERT(newSdpPacket.addLayer(&ip4Layer), "Adding IPv4 layer failed");
+
+	UdpLayer udpLayer = *(sdpPacket.getLayerOfType<UdpLayer>());
+	PACKETPP_ASSERT(newSdpPacket.addLayer(&udpLayer), "Adding UDP layer failed");
+
+	SipResponseLayer sipLayer = *(sdpPacket.getLayerOfType<SipResponseLayer>());
+	PACKETPP_ASSERT(newSdpPacket.addLayer(&sipLayer), "Adding SIP layer failed");
+
+	SdpLayer newSdpLayer("IPP", 782647527, 782647407, IPv4Address(std::string("10.33.6.100")), "Phone-Call", 0, 0);
+
+	std::vector<std::string> audioAttributes;
+	audioAttributes.push_back("rtpmap:8 PCMA/8000");
+	audioAttributes.push_back("rtpmap:96 telephone-event/8000");
+	audioAttributes.push_back("fmtp:96 0-15,16");
+	audioAttributes.push_back("ptime:20");
+	audioAttributes.push_back("sendrecv");
+	PACKETPP_ASSERT(newSdpLayer.addMediaDescription("audio", 6010, "RTP/AVP", "8 96", audioAttributes) == true,
+			"Failed adding audio media description");
+
+	std::vector<std::string> imageAttributes;
+	imageAttributes.push_back("T38FaxVersion:0");
+	imageAttributes.push_back("T38MaxBitRate:14400");
+	imageAttributes.push_back("T38FaxMaxBuffer:1024");
+	imageAttributes.push_back("T38FaxMaxDatagram:238");
+	imageAttributes.push_back("T38FaxRateManagement:transferredTCF");
+	imageAttributes.push_back("T38FaxUdpEC:t38UDPRedundancy");
+	PACKETPP_ASSERT(newSdpLayer.addMediaDescription("image", 6012, "udptl", "t38", imageAttributes) == true,
+			"Failed adding image media description");
+
+	PACKETPP_ASSERT(newSdpPacket.addLayer(&newSdpLayer), "Adding SDP layer failed");
+
+	newSdpPacket.computeCalculateFields();
+
+	PACKETPP_ASSERT(newSdpPacket.isPacketOfType(SDP) == true, "New packet isn't of type SDP");
+
+	SdpLayer* sdpLayerPtr = newSdpPacket.getLayerOfType<SdpLayer>();
+
+	PACKETPP_ASSERT(sdpLayerPtr != NULL, "Cannot find newly added SDP layer");
+	PACKETPP_ASSERT(sdpLayerPtr->getFieldCount() == 18, "Number of header fields isn't 18");
+	PACKETPP_ASSERT(sdpLayerPtr->getHeaderLen() == 406, "SDP message len isn't 406");
+
+	SdpLayer* sdpLayerPtr2 = sdpPacket.getLayerOfType<SdpLayer>();
+	PACKETPP_ASSERT(memcmp(sdpLayerPtr2->getData(), sdpLayerPtr->getData(), sdpLayerPtr2->getHeaderLen()) == 0, "Created raw data is different from expected");
+
+	SdpLayer copiedSdpLayer = *sdpLayerPtr;
+	PACKETPP_ASSERT(copiedSdpLayer.getFieldCount() == 18, "Number of header fields in copied layer isn't 18");
+	PACKETPP_ASSERT(copiedSdpLayer.getHeaderLen() == 406, "SDP copied message len isn't 406");
+	PACKETPP_ASSERT(memcmp(copiedSdpLayer.getData(), sdpLayerPtr->getData(), sdpLayerPtr->getHeaderLen()) == 0, "Copied data is different from expected");
+
+	PACKETPP_TEST_PASSED;
+}
+
+PACKETPP_TEST(SdpLayerEditTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer3Length = 0;
+	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/sip_resp3.dat", buffer3Length);
+	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file sip_resp3.dat");
+
+	int bufferLength = 0;
+	uint8_t* buffer = readFileIntoBuffer("PacketExamples/sdp.dat", bufferLength);
+	PACKETPP_ASSERT(!(buffer == NULL), "cannot read file sdp.dat");
+
+	RawPacket rawPacket3((const uint8_t*)buffer3, buffer3Length, time, true);
+	RawPacket rawPacket((const uint8_t*)buffer, bufferLength, time, true);
+
+	Packet sourceSdpPacket(&rawPacket3);
+	Packet targetSdpPacket(&rawPacket);
+
+	SdpLayer* sdpLayer = sourceSdpPacket.getLayerOfType<SdpLayer>();
+	PACKETPP_ASSERT(sdpLayer != NULL, "Cannot find SDP layer in source packet");
+
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_ORIGINATOR_FIELD)->setFieldValue("IPP 782647527 782647407 IN IP4 10.33.6.100") == true, "Cannot change originator field");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_SESSION_NAME_FIELD)->setFieldValue("Phone-Call") == true, "Cannot change session-name field");
+	PACKETPP_ASSERT(sdpLayer->getFieldByName(PCPP_SDP_CONNECTION_INFO_FIELD)->setFieldValue("IN IP4 10.33.6.100") == true, "Cannot change connection-info field");
+	PACKETPP_ASSERT(sdpLayer->removeField(PCPP_SDP_MEDIA_NAME_FIELD) == true, "Cannot remove media field");
+	while (sdpLayer->getFieldByName(PCPP_SDP_MEDIA_ATTRIBUTE_FIELD) != NULL)
+	{
+		sdpLayer->removeField(PCPP_SDP_MEDIA_ATTRIBUTE_FIELD);
+	}
+
+	std::vector<std::string> audioAttributes;
+	audioAttributes.push_back("rtpmap:8 PCMA/8000");
+	audioAttributes.push_back("rtpmap:96 telephone-event/8000");
+	audioAttributes.push_back("fmtp:96 0-15,16");
+	audioAttributes.push_back("ptime:20");
+	audioAttributes.push_back("sendrecv");
+	PACKETPP_ASSERT(sdpLayer->addMediaDescription("audio", 6010, "RTP/AVP", "8 96", audioAttributes) == true,
+			"Failed adding audio media description");
+
+	std::vector<std::string> imageAttributes;
+	imageAttributes.push_back("T38FaxVersion:0");
+	imageAttributes.push_back("T38MaxBitRate:14400");
+	imageAttributes.push_back("T38FaxMaxBuffer:1024");
+	imageAttributes.push_back("T38FaxMaxDatagram:238");
+	imageAttributes.push_back("T38FaxRateManagement:transferredTCF");
+	imageAttributes.push_back("T38FaxUdpEC:t38UDPRedundancy");
+	PACKETPP_ASSERT(sdpLayer->addMediaDescription("image", 6012, "udptl", "t38", imageAttributes) == true,
+			"Failed adding image media description");
+
+	sourceSdpPacket.computeCalculateFields();
+
+	SdpLayer* targetSdpLayer = targetSdpPacket.getLayerOfType<SdpLayer>();
+
+	PACKETPP_ASSERT(sdpLayer->getFieldCount() == targetSdpLayer->getFieldCount(), "Different field count in edited and target SDP layers");
+	PACKETPP_ASSERT(sdpLayer->getHeaderLen() == targetSdpLayer->getHeaderLen(), "Different header length in edited and target SDP layers");
+	PACKETPP_ASSERT(sdpLayer->getOwnerIPv4Address() == targetSdpLayer->getOwnerIPv4Address(), "Different owner IP in edited and target SDP layers");
+	PACKETPP_ASSERT(sdpLayer->getMediaPort("audio") == targetSdpLayer->getMediaPort("audio"), "Different audio port in edited and target SDP layers");
+	PACKETPP_ASSERT(sdpLayer->getMediaPort("image") == targetSdpLayer->getMediaPort("image"), "Different image port in edited and target SDP layers");
+	PACKETPP_ASSERT(memcmp(sdpLayer->getData(), targetSdpLayer->getData(), targetSdpLayer->getHeaderLen()) == 0, "Edited SDP data is different from target SDP data");
+
+	PACKETPP_TEST_PASSED;
+}
+
+
+PACKETPP_TEST(PacketTrailerTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer1Length = 0;
+	uint8_t* buffer1 = readFileIntoBuffer("PacketExamples/packet_trailer_arp.dat", buffer1Length);
+	PACKETPP_ASSERT(!(buffer1 == NULL), "cannot read file packet_trailer_arp.dat");
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/packet_trailer_ipv4.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file packet_trailer_ipv4.dat.dat");
+
+	int buffer3Length = 0;
+	uint8_t* buffer3 = readFileIntoBuffer("PacketExamples/packet_trailer_ipv6.dat", buffer3Length);
+	PACKETPP_ASSERT(!(buffer3 == NULL), "cannot read file packet_trailer_ipv6.dat");
+
+	int buffer4Length = 0;
+	uint8_t* buffer4 = readFileIntoBuffer("PacketExamples/packet_trailer_pppoed.dat", buffer4Length);
+	PACKETPP_ASSERT(!(buffer4 == NULL), "cannot read file packet_trailer_pppoed.dat");
+
+	int buffer5Length = 0;
+	uint8_t* buffer5 = readFileIntoBuffer("PacketExamples/packet_trailer_ipv6.dat", buffer5Length);
+	PACKETPP_ASSERT(!(buffer5 == NULL), "cannot read file packet_trailer_ipv6.dat second time");
+
+
+	RawPacket rawPacket1((const uint8_t*)buffer1, buffer1Length, time, true);
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true);
+	RawPacket rawPacket3((const uint8_t*)buffer3, buffer3Length, time, true);
+	RawPacket rawPacket4((const uint8_t*)buffer4, buffer4Length, time, true);
+	RawPacket rawPacket5((const uint8_t*)buffer5, buffer5Length, time, true);
+
+	Packet trailerArpPacket(&rawPacket1);
+	Packet trailerIPv4Packet(&rawPacket2);
+	Packet trailerIPv6Packet(&rawPacket3);
+	Packet trailerPPPoEDPacket(&rawPacket4);
+	Packet trailerIPv6Packet2(&rawPacket5);
+
+	PACKETPP_ASSERT(trailerArpPacket.isPacketOfType(PacketTrailer) == true, "trailerArpPacket isn't of type PacketTrailer");
+	PACKETPP_ASSERT(trailerIPv4Packet.isPacketOfType(PacketTrailer) == true, "trailerIPv4Packet isn't of type PacketTrailer");
+	PACKETPP_ASSERT(trailerIPv6Packet.isPacketOfType(PacketTrailer) == true, "trailerIPv6Packet isn't of type PacketTrailer");
+	PACKETPP_ASSERT(trailerPPPoEDPacket.isPacketOfType(PacketTrailer) == true, "trailerPPPoEDPacket isn't of type PacketTrailer");
+
+	PACKETPP_ASSERT(trailerArpPacket.getLayerOfType<PacketTrailerLayer>()->getTrailerLen() == 18, "trailerArpPacket - trailer len isn't 18");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<PacketTrailerLayer>()->getTrailerLen() == 6, "trailerIPv4Packet - trailer len isn't 6");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<PacketTrailerLayer>()->getTrailerLen() == 4, "trailerIPv6Packet - trailer len isn't 4");
+	PACKETPP_ASSERT(trailerPPPoEDPacket.getLayerOfType<PacketTrailerLayer>()->getTrailerLen() == 28, "trailerPPPoEDPacket - trailer len isn't 28");
+
+	PACKETPP_ASSERT(trailerArpPacket.getLayerOfType<PacketTrailerLayer>()->getTrailerDataAsHexString() ==  "742066726f6d2062726964676500203d3d20", "trailerArpPacket - wrong trailer string");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<PacketTrailerLayer>()->getTrailerDataAsHexString() ==  "0101080a0000", "trailerIPv4Packet - wrong trailer string");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<PacketTrailerLayer>()->getTrailerDataAsHexString() ==  "cdfcf105", "trailerIPv6Packet - wrong trailer string");
+	PACKETPP_ASSERT(trailerPPPoEDPacket.getLayerOfType<PacketTrailerLayer>()->getTrailerDataAsHexString() ==  "00000000000000000000000000000000000000000000000000000000", "trailerPPPoEDPacket - wrong trailer string");
+
+	PACKETPP_ASSERT(trailerArpPacket.getLayerOfType<PacketTrailerLayer>()->getTrailerData()[3] == 0x72, "trailerArpPacket - wrong data");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<PacketTrailerLayer>()->getTrailerData()[2] == 0x8, "trailerIPv4Packet - wrong data");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<PacketTrailerLayer>()->getTrailerData()[1] == 0xfc, "trailerIPv6Packet - wrong data");
+	PACKETPP_ASSERT(trailerPPPoEDPacket.getLayerOfType<PacketTrailerLayer>()->getTrailerData()[12] == 0, "trailerPPPoEDPacket - wrong data");
+
+	EthLayer* ethLayer = trailerIPv4Packet.getLayerOfType<EthLayer>();
+	IPv4Layer* ip4Layer = trailerIPv4Packet.getLayerOfType<IPv4Layer>();
+	PACKETPP_ASSERT(ethLayer != NULL, "trailerIPv4Packet isn't of type Ethernet");
+	PACKETPP_ASSERT(ip4Layer != NULL, "trailerIPv4Packet isn't of type IPv4");
+	PACKETPP_ASSERT(ethLayer->getDataLen() - ethLayer->getHeaderLen() > ip4Layer->getDataLen(), "trailerIPv4Packet - eth data isn't larger than ip4 data");
+	PACKETPP_ASSERT(ip4Layer->getDataLen() == ntohs(ip4Layer->getIPv4Header()->totalLength), "trailerIPv4Packet - dataLen != totalLength");
+
+	ethLayer = trailerIPv6Packet.getLayerOfType<EthLayer>();
+	IPv6Layer* ip6Layer = trailerIPv6Packet.getLayerOfType<IPv6Layer>();
+	PACKETPP_ASSERT(ethLayer != NULL, "trailerIPv6Packet isn't of type Ethernet");
+	PACKETPP_ASSERT(ip6Layer != NULL, "trailerIPv6Packet isn't of type IPv6");
+	PACKETPP_ASSERT(ethLayer->getDataLen() - ethLayer->getHeaderLen() > ip6Layer->getDataLen(), "trailerIPv6Packet - eth data isn't larger than ip6 data");
+	PACKETPP_ASSERT(ip6Layer->getDataLen() == ntohs(ip6Layer->getIPv6Header()->payloadLength) + ip6Layer->getHeaderLen(), "trailerIPv6Packet - dataLen != totalLength");
+
+	// add layer before trailer
+	VlanLayer newVlanLayer(123, true, 1, PCPP_ETHERTYPE_IPV6);
+	PACKETPP_ASSERT(trailerIPv6Packet.insertLayer(ethLayer, &newVlanLayer) == true, "trailerIPv6Packet - couldn't add VLAN layer");
+	trailerIPv6Packet.computeCalculateFields();
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<EthLayer>()->getDataLen() == 468, "trailerIPv6Packet add layer - eth layer len isn't 468");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<VlanLayer>()->getDataLen() == 454, "trailerIPv6Packet add layer - vlan layer len isn't 454d");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<IPv6Layer>()->getDataLen() == 446, "trailerIPv6Packet add layer - ipv6 layer len isn't 446");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<UdpLayer>()->getDataLen() == 406, "trailerIPv6Packet add layer - udp layer len isn't 406");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<DnsLayer>()->getDataLen() == 398, "trailerIPv6Packet add layer - dns layer len isn't 398");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<PacketTrailerLayer>()->getDataLen() == 4, "trailerIPv6Packet add layer - trailer layer len isn't 4");
+
+	// add layer just before trailer
+	HttpRequestLayer httpReq(HttpRequestLayer::HttpGET, "/main.html", OneDotOne);
+	httpReq.addEndOfHeader();
+	TcpLayer* tcpLayer = trailerIPv4Packet.getLayerOfType<TcpLayer>();
+	PACKETPP_ASSERT(tcpLayer != NULL, "Couldn't find TCP layer for trailerIPv4Packet");
+	trailerIPv4Packet.insertLayer(tcpLayer, &httpReq);
+	trailerIPv4Packet.computeCalculateFields();
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<EthLayer>()->getDataLen() == 87, "trailerIPv4Packet add layer - eth layer len isn't 87");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<IPv4Layer>()->getDataLen() == 67, "trailerIPv4Packet add layer - ipv4 layer len isn't 67");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<TcpLayer>()->getDataLen() == 47, "trailerIPv4Packet add layer - tcp layer len isn't 47");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<HttpRequestLayer>()->getDataLen() == 27, "trailerIPv4Packet add layer - http layer len isn't 27");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<PacketTrailerLayer>()->getDataLen() == 6, "trailerIPv4Packet add layer - trailer layer len isn't 6");
+
+	// add layer after trailer (result with an error)
+	uint8_t payload[4] = { 0x1, 0x2, 0x3, 0x4 };
+	PayloadLayer newPayloadLayer(payload, 4, false);
+	LoggerPP::getInstance().supressErrors();
+	PACKETPP_ASSERT(trailerIPv4Packet.addLayer(&newPayloadLayer) == false, "Wrongly succeeded to add a layer after packet trailer");
+	LoggerPP::getInstance().enableErrors();
+
+	// remove layer before trailer
+	PACKETPP_ASSERT(trailerIPv4Packet.removeLayer(TCP) == true, "Couldn't remove TCP layer for trailerIPv4Packet");
+	trailerIPv4Packet.computeCalculateFields();
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<EthLayer>()->getDataLen() == 67, "trailerIPv4Packet remove layer - eth layer len isn't 67");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<IPv4Layer>()->getDataLen() == 47, "trailerIPv4Packet remove layer - ipv4 layer len isn't 47");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<HttpRequestLayer>()->getDataLen() == 27, "trailerIPv4Packet remove layer - http layer len isn't 27");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<PacketTrailerLayer>()->getDataLen() == 6, "trailerIPv4Packet remove layer - trailer layer len isn't 6");
+
+	// remove layer just before trailer
+	PACKETPP_ASSERT(trailerIPv4Packet.removeLayer(HTTPRequest) == true, "Couldn't remove HTTP request layer for trailerIPv4Packet");
+	trailerIPv4Packet.computeCalculateFields();
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<EthLayer>()->getDataLen() == 40, "trailerIPv4Packet remove layer - eth layer len isn't 67");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<IPv4Layer>()->getDataLen() == 20, "trailerIPv4Packet remove layer - ipv4 layer len isn't 47");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<PacketTrailerLayer>()->getDataLen() == 6, "trailerIPv4Packet remove layer - trailer layer len isn't 6");
+
+	// remove trailer
+	ethLayer = trailerIPv6Packet2.getLayerOfType<EthLayer>();
+	VlanLayer newVlanLayer2(456, true, 1, PCPP_ETHERTYPE_IPV6);
+	PACKETPP_ASSERT(trailerIPv6Packet2.insertLayer(ethLayer, &newVlanLayer2) == true, "trailerIPv6Packet2 - couldn't add VLAN layer");
+	PacketTrailerLayer* packetTrailer = trailerIPv6Packet2.getLayerOfType<PacketTrailerLayer>();
+	PACKETPP_ASSERT(packetTrailer != NULL, "Couldn't find trailer layer for trailerIPv6Packet2");
+	PACKETPP_ASSERT(trailerIPv6Packet2.removeLayer(PacketTrailer) == true, "Couldn't remove packet trailer for trailerIPv6Packet2");
+	trailerIPv6Packet2.computeCalculateFields();
+	PACKETPP_ASSERT(trailerIPv6Packet2.getLayerOfType<EthLayer>()->getDataLen() == 464, "trailerIPv6Packet2 remove trailer - eth layer len isn't 468");
+	PACKETPP_ASSERT(trailerIPv6Packet2.getLayerOfType<VlanLayer>()->getDataLen() == 450, "trailerIPv6Packet2 remove trailer - vlan layer len isn't 454d");
+	PACKETPP_ASSERT(trailerIPv6Packet2.getLayerOfType<IPv6Layer>()->getDataLen() == 446, "trailerIPv6Packet2 remove trailer - ipv6 layer len isn't 446");
+	PACKETPP_ASSERT(trailerIPv6Packet2.getLayerOfType<UdpLayer>()->getDataLen() == 406, "trailerIPv6Packet2 remove trailer - udp layer len isn't 406");
+	PACKETPP_ASSERT(trailerIPv6Packet2.getLayerOfType<DnsLayer>()->getDataLen() == 398, "trailerIPv6Packet2 remove trailer - dns layer len isn't 398");
+
+	// remove all layers but the trailer
+	PACKETPP_ASSERT(trailerIPv4Packet.removeLayer(Ethernet) == true, "Couldn't remove Ethernet layer for trailerIPv4Packet");
+	trailerIPv4Packet.computeCalculateFields();
+	PACKETPP_ASSERT(trailerIPv4Packet.removeLayer(IPv4) == true, "Couldn't remove IPv4 layer for trailerIPv4Packet");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<PacketTrailerLayer>()->getDataLen() == 6, "trailerIPv4Packet remove all layers but trailer - trailer layer len isn't 6");
+
+	// rebuild packet starting from trailer
+	EthLayer newEthLayer(MacAddress("30:46:9a:23:fb:fa"), MacAddress("6c:f0:49:b2:de:6e"), PCPP_ETHERTYPE_IP);
+	trailerIPv4Packet.insertLayer(NULL, &newEthLayer);
+	IPv4Layer newIp4Layer(IPv4Address(std::string("173.194.78.104")), IPv4Address(std::string("10.0.0.1")));
+	newIp4Layer.getIPv4Header()->ipId = htons(40382);
+	newIp4Layer.getIPv4Header()->timeToLive = 46;
+	trailerIPv4Packet.insertLayer(&newEthLayer, &newIp4Layer);
+	TcpLayer newTcpLayer(443, 55194);
+	newTcpLayer.getTcpHeader()->ackNumber = htonl(0x807df56c);
+	newTcpLayer.getTcpHeader()->sequenceNumber = htonl(0x46529f28);
+	newTcpLayer.getTcpHeader()->ackFlag = 1;
+	newTcpLayer.getTcpHeader()->windowSize = htons(344);
+	trailerIPv4Packet.insertLayer(&newIp4Layer, &newTcpLayer);
+	trailerIPv4Packet.computeCalculateFields();
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<EthLayer>()->getDataLen() == 60, "trailerIPv4Packet rebuild - eth layer len isn't 60");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<IPv4Layer>()->getDataLen() == 40, "trailerIPv4Packet rebuild - ipv4 layer len isn't 40");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<TcpLayer>()->getDataLen() == 20, "trailerIPv4Packet rebuild - tcp layer len isn't 20");
+	PACKETPP_ASSERT(trailerIPv4Packet.getLayerOfType<PacketTrailerLayer>()->getDataLen() == 6, "trailerIPv4Packet rebuild - trailer layer len isn't 6");
+
+	// extend layer before trailer
+	ip6Layer = trailerIPv6Packet.getLayerOfType<IPv6Layer>();
+	IPv6RoutingHeader routingExt(4, 3, NULL, 0);
+	ip6Layer->addExtension<IPv6RoutingHeader>(routingExt);
+	trailerIPv6Packet.computeCalculateFields();
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<EthLayer>()->getDataLen() == 476, "trailerIPv6Packet extend layer - eth layer len isn't 476");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<VlanLayer>()->getDataLen() == 462, "trailerIPv6Packet extend layer - vlan layer len isn't 462");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<IPv6Layer>()->getDataLen() == 454, "trailerIPv6Packet extend layer - ipv6 layer len isn't 454");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<UdpLayer>()->getDataLen() == 406, "trailerIPv6Packet extend layer - udp layer len isn't 406");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<DnsLayer>()->getDataLen() == 398, "trailerIPv6Packet extend layer - dns layer len isn't 398");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<PacketTrailerLayer>()->getDataLen() == 4, "trailerIPv6Packet extend layer - trailer layer len isn't 4");
+
+	// extend layer just before trailer
+	PPPoEDiscoveryLayer* pppoeDiscovery = trailerPPPoEDPacket.getLayerOfType<PPPoEDiscoveryLayer>();
+	PACKETPP_ASSERT(pppoeDiscovery != NULL, "Couldn't find PPPoE discovery layer for trailerPPPoEDPacket");
+	uint8_t pppoedTagData[4] = { 0x42, 0x52, 0x41, 0x53 };
+	PACKETPP_ASSERT(pppoeDiscovery->addTag(PPPoEDiscoveryLayer::PPPOE_TAG_AC_NAME, (uint16_t)4, pppoedTagData) != NULL, "Could add pppoed tag");
+	trailerPPPoEDPacket.computeCalculateFields();
+	PACKETPP_ASSERT(trailerPPPoEDPacket.getLayerOfType<EthLayer>()->getDataLen() == 68, "trailerPPPoEDPacket extend layer - eth layer len isn't 68");
+	PACKETPP_ASSERT(trailerPPPoEDPacket.getLayerOfType<PPPoEDiscoveryLayer>()->getDataLen() == 26, "trailerPPPoEDPacket extend layer - pppoed layer len isn't 26");
+	PACKETPP_ASSERT(trailerPPPoEDPacket.getLayerOfType<PacketTrailerLayer>()->getDataLen() == 28, "trailerPPPoEDPacket extend layer - trailer layer len isn't 28");
+
+	// shorten layer before trailer
+	ip6Layer = trailerIPv6Packet.getLayerOfType<IPv6Layer>();
+	ip6Layer->removeAllExtensions();
+	trailerIPv6Packet.computeCalculateFields();
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<EthLayer>()->getDataLen() == 468, "trailerIPv6Packet shorten layer - eth layer len isn't 468");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<VlanLayer>()->getDataLen() == 454, "trailerIPv6Packet shorten layer - vlan layer len isn't 454d");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<IPv6Layer>()->getDataLen() == 446, "trailerIPv6Packet shorten layer - ipv6 layer len isn't 446");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<UdpLayer>()->getDataLen() == 406, "trailerIPv6Packet shorten layer - udp layer len isn't 406");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<DnsLayer>()->getDataLen() == 398, "trailerIPv6Packet shorten layer - dns layer len isn't 398");
+	PACKETPP_ASSERT(trailerIPv6Packet.getLayerOfType<PacketTrailerLayer>()->getDataLen() == 4, "trailerIPv6Packet shorten layer - trailer layer len isn't 4");
+
+	// shorten layer just before trailer
+	pppoeDiscovery = trailerPPPoEDPacket.getLayerOfType<PPPoEDiscoveryLayer>();
+	PACKETPP_ASSERT(pppoeDiscovery->removeAllTags() == true, "couldn't remove all tags for pppoed layer");
+	trailerPPPoEDPacket.computeCalculateFields();
+	PACKETPP_ASSERT(trailerPPPoEDPacket.getLayerOfType<EthLayer>()->getDataLen() == 48, "trailerPPPoEDPacket shorten layer - eth layer len isn't 48");
+	PACKETPP_ASSERT(trailerPPPoEDPacket.getLayerOfType<PPPoEDiscoveryLayer>()->getDataLen() == 6, "trailerPPPoEDPacket shorten layer - pppoed layer len isn't 6");
+	PACKETPP_ASSERT(trailerPPPoEDPacket.getLayerOfType<PacketTrailerLayer>()->getDataLen() == 28, "trailerPPPoEDPacket shorten layer - trailer layer len isn't 28");
+
+	PACKETPP_TEST_PASSED;
+}
+
+
+PACKETPP_TEST(RadiusLayerParsingTest)
+{
+	int bufferLength = 0;
+	uint8_t* buffer = readFileIntoBuffer("PacketExamples/radius_1.dat", bufferLength);
+	PACKETPP_ASSERT(!(buffer == NULL), "cannot read file");
+
+	timeval time;
+	gettimeofday(&time, NULL);
+	RawPacket rawPacket((const uint8_t*)buffer, bufferLength, time, true);
+	Packet radiusPacket(&rawPacket);
+
+	RadiusLayer* radiusLayer = radiusPacket.getLayerOfType<RadiusLayer>();
+	PACKETPP_ASSERT(radiusLayer != NULL, "Packet1: Couldn't fetch Radius layer");
+	PACKETPP_ASSERT(radiusLayer->getRadiusHeader()->code == 1, "Packet1: code isn't 1");
+	PACKETPP_ASSERT(radiusLayer->getRadiusHeader()->id == 5, "Packet1: id isn't 5");
+	PACKETPP_ASSERT(radiusLayer->getAuthenticatorValue() == "ecfe3d2fe4473ec6299095ee46aedf77", "Packet1: authenticator value is wrong");
+	PACKETPP_ASSERT(radiusLayer->getHeaderLen() == 139, "Packet1: length isn't 139");
+	PACKETPP_ASSERT(RadiusLayer::getRadiusMessageString(radiusLayer->getRadiusHeader()->code) == "Access-Request", "Packet1: message isn't Access-Request");
+	PACKETPP_ASSERT(radiusLayer->getAttributeCount() == 10, "Packet1: option count isn't 10, it's %d", (int)radiusLayer->getAttributeCount());
+	uint8_t attrTypes[10] = { 4, 5, 61, 1, 30, 31, 6, 12, 79, 80 };
+	size_t attrTotalSize[10] = { 6, 6, 6, 14, 19, 19, 6, 6, 19, 18 };
+	size_t attrDataSize[10] = { 4, 4, 4, 12, 17, 17, 4, 4, 17, 16 };
+	RadiusAttribute radiusAttr = radiusLayer->getFirstAttribute();
+	for (int i=0; i<10; i++)
+	{
+		PACKETPP_ASSERT(radiusAttr.getType() == attrTypes[i], "Packet1: attr type #%d doesn't match", i);
+		PACKETPP_ASSERT(radiusAttr.getTotalSize() == attrTotalSize[i], "Packet1: attr total size #%d doesn't match", i);
+		PACKETPP_ASSERT(radiusAttr.getDataSize() == attrDataSize[i], "Packet1: attr data size #%d doesn't match", i);
+		radiusAttr = radiusLayer->getNextAttribute(radiusAttr);
+	}
+
+	radiusAttr = radiusLayer->getAttribute(6);
+	PACKETPP_ASSERT(!radiusAttr.isNull(), "Packet1: couldn't fetch attribute with type 6");
+	PACKETPP_ASSERT(radiusAttr.getType() == 6, "Packet1: attribute is not of type 6");
+	PACKETPP_ASSERT(radiusAttr.getDataSize() == 4, "Packet1: data size of attribute of type 6 isn't 4");
+	PACKETPP_ASSERT(radiusAttr.getTotalSize() == 6, "Packet1: total size of attribute of type 6 isn't 6");
+	PACKETPP_ASSERT(htonl(radiusAttr.getValueAs<int>()) == 2, "Packet1: value of attribute of type 6 isn't 2");
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/radius_3.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file");
+
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true, LINKTYPE_NULL);
+	Packet radiusPacket2(&rawPacket2);
+
+	radiusLayer = radiusPacket2.getLayerOfType<RadiusLayer>();
+
+	PACKETPP_ASSERT(radiusLayer != NULL, "Packet2: Couldn't fetch Radius layer");
+	PACKETPP_ASSERT(radiusLayer->getRadiusHeader()->code == 3, "Packet2: code isn't 3");
+	PACKETPP_ASSERT(radiusLayer->getRadiusHeader()->id == 104, "Packet2: id isn't 104");
+	PACKETPP_ASSERT(radiusLayer->getAuthenticatorValue() == "71624da25c0b5897f70539e019a81eae", "Packet2: authenticator value is wrong");
+	PACKETPP_ASSERT(radiusLayer->getHeaderLen() == 44, "Packet2: length isn't 44");
+	PACKETPP_ASSERT(RadiusLayer::getRadiusMessageString(radiusLayer->getRadiusHeader()->code) == "Access-Reject", "Packet2: message isn't Access-Reject");
+	PACKETPP_ASSERT(radiusLayer->getAttributeCount() == 2, "Packet2: option count isn't 2, it's %d", (int)radiusLayer->getAttributeCount());
+	uint8_t attrTypes2[2] = { 79, 80 };
+	size_t attrTotalSize2[2] = { 6, 18 };
+	size_t attrDataSize2[2] = { 4, 16 };
+	radiusAttr = radiusLayer->getFirstAttribute();
+	for (int i=0; i<2; i++)
+	{
+		PACKETPP_ASSERT(radiusAttr.getType() == attrTypes2[i], "Packet2: attr type #%d doesn't match", i);
+		PACKETPP_ASSERT(radiusAttr.getTotalSize() == attrTotalSize2[i], "Packet2: attr total size #%d doesn't match", i);
+		PACKETPP_ASSERT(radiusAttr.getDataSize() == attrDataSize2[i], "Packet2: attr data size #%d doesn't match", i);
+		radiusAttr = radiusLayer->getNextAttribute(radiusAttr);
+	}
+
+	PACKETPP_TEST_PASSED;
+}
+
+
+PACKETPP_TEST(RadiusLayerCreationTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer11Length = 0;
+	uint8_t* buffer11 = readFileIntoBuffer("PacketExamples/radius_11.dat", buffer11Length);
+	PACKETPP_ASSERT(!(buffer11 == NULL), "cannot read file radius_11.dat");
+
+	RawPacket rawPacket((const uint8_t*)buffer11, buffer11Length, time, true);
+
+	Packet radiusPacket(&rawPacket);
+
+	Packet newRadiusPacket;
+
+	EthLayer ethLayer(*radiusPacket.getLayerOfType<EthLayer>());
+	PACKETPP_ASSERT(newRadiusPacket.addLayer(&ethLayer), "Adding ethernet layer failed");
+
+	IPv4Layer ip4Layer;
+	ip4Layer = *(radiusPacket.getLayerOfType<IPv4Layer>());
+	PACKETPP_ASSERT(newRadiusPacket.addLayer(&ip4Layer), "Adding IPv4 layer failed");
+
+	UdpLayer udpLayer(*radiusPacket.getLayerOfType<UdpLayer>());
+	PACKETPP_ASSERT(newRadiusPacket.addLayer(&udpLayer), "Adding UDP layer failed");
+
+	RadiusLayer radiusLayer(11, 5, "f050649184625d36f14c9075b7a48b83");
+	RadiusAttribute radiusNewAttr = radiusLayer.addAttribute(RadiusAttributeBuilder(8, IPv4Address(std::string("255.255.255.254"))));
+	PACKETPP_ASSERT(radiusNewAttr.isNull() == false, "New attr type 8: attr is null");
+	PACKETPP_ASSERT(radiusNewAttr.getType() == 8, "New attr type 8: type isn't 8");
+	PACKETPP_ASSERT(radiusNewAttr.getDataSize() == 4, "New attr type 8: data size isn't 4");
+
+	radiusNewAttr = radiusLayer.addAttribute(RadiusAttributeBuilder(12, (uint32_t)576));
+	PACKETPP_ASSERT(radiusNewAttr.isNull() == false, "New attr type 12: attr is null");
+	PACKETPP_ASSERT(radiusNewAttr.getType() == 12, "New attr type 12: type isn't 12");
+	PACKETPP_ASSERT(radiusNewAttr.getDataSize() == 4, "New attr type 12: data size isn't 4");
+	PACKETPP_ASSERT(radiusNewAttr.getValueAs<uint32_t>() == htonl(576), "New attr type 12: data isn't 576");
+
+	PACKETPP_ASSERT(newRadiusPacket.addLayer(&radiusLayer), "Adding Radius layer failed");
+
+	radiusNewAttr = radiusLayer.addAttribute(RadiusAttributeBuilder(18, std::string("Hello, %u")));
+	PACKETPP_ASSERT(radiusNewAttr.isNull() == false, "New attr type 18: attr is null");
+	PACKETPP_ASSERT(radiusNewAttr.getType() == 18, "New attr type 18: type isn't 18");
+	PACKETPP_ASSERT(radiusNewAttr.getDataSize() == 9, "New attr type 18: data size isn't 9");
+
+	radiusNewAttr = radiusLayer.addAttributeAfter(RadiusAttributeBuilder(6, (uint32_t)2), 12);
+	PACKETPP_ASSERT(radiusNewAttr.isNull() == false, "New attr type 6: attr is null");
+	PACKETPP_ASSERT(radiusNewAttr.getType() == 6, "New attr type 6: type isn't 6");
+	PACKETPP_ASSERT(radiusNewAttr.getDataSize() == 4, "New attr type 6: data size isn't 4");
+
+	uint8_t attrValue1[] = { 0xc6, 0xd1, 0x95, 0x03, 0x2f, 0xdc, 0x30, 0x24, 0x0f, 0x73, 0x13, 0xb2, 0x31, 0xef, 0x1d, 0x77 };
+	uint8_t attrValue1Len = 16;
+	radiusNewAttr = radiusLayer.addAttribute(RadiusAttributeBuilder(24, attrValue1, attrValue1Len));
+	PACKETPP_ASSERT(radiusNewAttr.isNull() == false, "New attr type 24: attr is null");
+
+	uint8_t attrValue2[] = { 0x01, 0x01, 0x00, 0x16, 0x04, 0x10, 0x26, 0x6b, 0x0e, 0x9a, 0x58, 0x32, 0x2f, 0x4d, 0x01, 0xab, 0x25, 0xb3, 0x5f, 0x87, 0x94, 0x64 };
+	uint8_t attrValue2Len = 22;
+	radiusNewAttr = radiusLayer.addAttributeAfter(RadiusAttributeBuilder(79, attrValue2, attrValue2Len), 18);
+	PACKETPP_ASSERT(radiusNewAttr.isNull() == false, "New attr type 79: attr is null");
+
+	uint8_t attrValue3[] = { 0x11, 0xb5, 0x04, 0x3c, 0x8a, 0x28, 0x87, 0x58, 0x17, 0x31, 0x33, 0xa5, 0xe0, 0x74, 0x34, 0xcf };
+	uint8_t attrValue3Len = 16;
+	radiusNewAttr = radiusLayer.addAttributeAfter(RadiusAttributeBuilder(80, attrValue3, attrValue3Len), 79);
+	PACKETPP_ASSERT(radiusNewAttr.isNull() == false, "New attr type 80: attr is null");
+
+	newRadiusPacket.computeCalculateFields();
+
+	RadiusLayer* origRadiusLayer = radiusPacket.getLayerOfType<RadiusLayer>();
+	RadiusLayer* newRadiusLayer = newRadiusPacket.getLayerOfType<RadiusLayer>();
+	PACKETPP_ASSERT(origRadiusLayer->getDataLen() == newRadiusLayer->getDataLen(), "New radius data len is different than orig data len");
+	PACKETPP_ASSERT(memcmp(origRadiusLayer->getData(), newRadiusLayer->getData(), origRadiusLayer->getDataLen()) == 0, "Raw layer data is different than expected");
+
+	PACKETPP_TEST_PASSED;
+}
+
+PACKETPP_TEST(RadiusLayerEditTest)
+{
+	timeval time;
+	gettimeofday(&time, NULL);
+
+	int buffer11Length = 0;
+	uint8_t* buffer11 = readFileIntoBuffer("PacketExamples/radius_11.dat", buffer11Length);
+	PACKETPP_ASSERT(!(buffer11 == NULL), "cannot read file radius_11.dat");
+
+	RawPacket rawPacket11((const uint8_t*)buffer11, buffer11Length, time, true);
+	Packet radiusPacket11(&rawPacket11);
+
+	int buffer2Length = 0;
+	uint8_t* buffer2 = readFileIntoBuffer("PacketExamples/radius_2.dat", buffer2Length);
+	PACKETPP_ASSERT(!(buffer2 == NULL), "cannot read file radius_2.dat");
+
+	RawPacket rawPacket2((const uint8_t*)buffer2, buffer2Length, time, true);
+	Packet radiusPacket2(&rawPacket2);
+
+	RadiusLayer* radiusLayer = radiusPacket11.getLayerOfType<RadiusLayer>();
+	PACKETPP_ASSERT(radiusLayer != NULL, "cannot find radius layer for packet11");
+	radiusLayer->getRadiusHeader()->code = 2;
+	radiusLayer->getRadiusHeader()->id = 6;
+	radiusLayer->setAuthenticatorValue("fbba6a784c7decb314caf0f27944a37b");
+
+	PACKETPP_ASSERT(radiusLayer->removeAttribute(18) == true, "couldn't remove attribute 18");
+	PACKETPP_ASSERT(radiusLayer->removeAttribute(79) == true, "couldn't remove attribute 79");
+	PACKETPP_ASSERT(radiusLayer->removeAttribute(80) == true, "couldn't remove attribute 80");
+	PACKETPP_ASSERT(radiusLayer->removeAttribute(24) == true, "couldn't remove attribute 24");
+
+	RadiusAttribute radiusNewAttr = radiusLayer->addAttributeAfter(RadiusAttributeBuilder(18, std::string("Hello, John.McGuirk")), 6);
+	PACKETPP_ASSERT(radiusNewAttr.isNull() == false, "cannot add attribute 18");
+
+	uint8_t attrValue1[] = { 0x03, 0x01, 0x00, 0x04 };
+	uint8_t attrValue1Len = 4;
+	radiusNewAttr = radiusLayer->addAttributeAfter(RadiusAttributeBuilder(79, attrValue1, attrValue1Len), 18);
+	PACKETPP_ASSERT(radiusNewAttr.isNull() == false, "cannot add attribute 79");
+
+	uint8_t attrValue2[] = { 0xb9, 0xc4, 0xae, 0x62, 0x13, 0xa7, 0x1d, 0x32, 0x12, 0x5e, 0xf7, 0xca, 0x4e, 0x4c, 0x63, 0x60 };
+	uint8_t attrValue2Len = 16;
+	radiusNewAttr = radiusLayer->addAttributeAfter(RadiusAttributeBuilder(80, attrValue2, attrValue2Len), 79);
+	PACKETPP_ASSERT(radiusNewAttr.isNull() == false, "cannot add attribute 80");
+
+	radiusNewAttr = radiusLayer->addAttribute(RadiusAttributeBuilder(1, std::string("John.McGuirk")));
+	PACKETPP_ASSERT(radiusNewAttr.isNull() == false, "cannot add attribute 1");
+
+	radiusPacket11.computeCalculateFields();
+
+	RadiusLayer* msg2OrigRadiusLayer = radiusPacket2.getLayerOfType<RadiusLayer>();
+	PACKETPP_ASSERT(msg2OrigRadiusLayer->getDataLen() == radiusLayer->getDataLen(), "edited radius data len is different than messag2 data len");
+	PACKETPP_ASSERT(memcmp(msg2OrigRadiusLayer->getData(), radiusLayer->getData(), msg2OrigRadiusLayer->getDataLen()) == 0, "raw layer data is different than expected");
+
+
+
+	// remove all attributes test
+
+	PACKETPP_ASSERT(msg2OrigRadiusLayer->removeAllAttributes() == true, "cannot remove all attributes in packet2");
+	radiusPacket2.computeCalculateFields();
+	PACKETPP_ASSERT(msg2OrigRadiusLayer->getAttributeCount() == 0, "packet2: attribute count after removing all attributes isn't 0");
+	PACKETPP_ASSERT(msg2OrigRadiusLayer->getHeaderLen() == sizeof(radius_header), "packet2: header len after removing all attributes isn't correct");
+	PACKETPP_ASSERT(msg2OrigRadiusLayer->getFirstAttribute().isNull() == true, "packet2: managed to fetch first attribute after removing all attributes");
+	PACKETPP_ASSERT(msg2OrigRadiusLayer->getAttribute(6).isNull() == true, "packet2: managed to fetch attribute 6 after removing all attributes");
+	PACKETPP_ASSERT(msg2OrigRadiusLayer->getAttribute(80).isNull() == true, "packet2: managed to fetch attribute 6 after removing all attributes");
+
+	PACKETPP_TEST_PASSED;
+}
+
 
 int main(int argc, char* argv[]) {
 	start_leak_check();
 
+	printf("PcapPlusPlus version: %s\n", getPcapPlusPlusVersionFull().c_str());
+	printf("Built: %s\n", getBuildDateTime().c_str());
+	printf("Built from: %s\n", getGitInfo().c_str());
+	printf("Starting tests...\n\n");
+
 	PACKETPP_START_RUNNING_TESTS;
 
 	PACKETPP_RUN_TEST(EthPacketCreation);
+	PACKETPP_RUN_TEST(EthPacketPointerCreation);
 	PACKETPP_RUN_TEST(EthAndArpPacketParsing);
 	PACKETPP_RUN_TEST(ArpPacketCreation);
 	PACKETPP_RUN_TEST(VlanParseAndCreation);
@@ -5159,6 +7136,8 @@ int main(int argc, char* argv[]) {
 	PACKETPP_RUN_TEST(Ipv4OptionsEditTest);
 	PACKETPP_RUN_TEST(Ipv4UdpChecksum);
 	PACKETPP_RUN_TEST(Ipv6UdpPacketParseAndCreate);
+	PACKETPP_RUN_TEST(Ipv6FragmentationTest);
+	PACKETPP_RUN_TEST(Ipv6ExtensionsTest);
 	PACKETPP_RUN_TEST(TcpPacketNoOptionsParsing);
 	PACKETPP_RUN_TEST(TcpPacketWithOptionsParsing);
 	PACKETPP_RUN_TEST(TcpPacketWithOptionsParsing2);
@@ -5210,6 +7189,20 @@ int main(int argc, char* argv[]) {
 	PACKETPP_RUN_TEST(Igmpv3ParsingTest);
 	PACKETPP_RUN_TEST(Igmpv3QueryCreateAndEditTest);
 	PACKETPP_RUN_TEST(Igmpv3ReportCreateAndEditTest);
-
+	PACKETPP_RUN_TEST(ParsePartialPacketTest);
+	PACKETPP_RUN_TEST(VxlanParsingAndCreationTest);
+	PACKETPP_RUN_TEST(SipRequestLayerParsingTest);
+	PACKETPP_RUN_TEST(SipRequestLayerCreationTest);
+	PACKETPP_RUN_TEST(SipRequestLayerEditTest);
+	PACKETPP_RUN_TEST(SipResponseLayerParsingTest);
+	PACKETPP_RUN_TEST(SipResponseLayerCreationTest);
+	PACKETPP_RUN_TEST(SipResponseLayerEditTest);
+	PACKETPP_RUN_TEST(SdpLayerParsingTest);
+	PACKETPP_RUN_TEST(SdpLayerCreationTest);
+	PACKETPP_RUN_TEST(SdpLayerEditTest);
+	PACKETPP_RUN_TEST(PacketTrailerTest);
+	PACKETPP_RUN_TEST(RadiusLayerParsingTest);
+	PACKETPP_RUN_TEST(RadiusLayerCreationTest);
+	PACKETPP_RUN_TEST(RadiusLayerEditTest);
 	PACKETPP_END_RUNNING_TESTS;
 }

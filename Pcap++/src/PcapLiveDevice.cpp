@@ -1,20 +1,20 @@
 #define LOG_MODULE PcapLogModuleLiveDevice
 
-#include <PcapLiveDevice.h>
-#include <PcapLiveDeviceList.h>
+#include "IpUtils.h"
+#include "PcapLiveDevice.h"
+#include "PcapLiveDeviceList.h"
 #ifndef  _MSC_VER
 #include <unistd.h>
 #endif // ! _MSC_VER
 #include <pthread.h>
-#include <Logger.h>
-#include <PlatformSpecificUtils.h>
-#include <SystemUtils.h>
+#include "Logger.h"
+#include "PlatformSpecificUtils.h"
+#include "SystemUtils.h"
 #include <string.h>
 #include <iostream>
 #include <fstream>
 #include <sstream>
-#include <IpUtils.h>
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 #include <ws2tcpip.h>
 #include <Packet32.h>
 #include <ntddndis.h>
@@ -37,6 +37,8 @@
 #define LIBPCAP_OPEN_LIVE_TIMEOUT -1
 #endif
 
+static const int DEFAULT_SNAPLEN = 9000;
+
 namespace pcpp
 {
 
@@ -52,6 +54,7 @@ PcapLiveDevice::PcapLiveDevice(pcap_if_t* pInterface, bool calculateMTU, bool ca
 	m_Name = NULL;
 	m_Description = NULL;
 	m_DeviceMtu = 0;
+	m_LinkType = LINKTYPE_ETHERNET;
 
 	m_IsLoopback = (pInterface->flags & 0x1) == PCAP_IF_LOOPBACK;
 
@@ -95,7 +98,8 @@ PcapLiveDevice::PcapLiveDevice(pcap_if_t* pInterface, bool calculateMTU, bool ca
 
 	//init all other members
 	m_CaptureThreadStarted = false;
-	m_StatsThreadStarted = false;  m_IsLoopback = false;
+	m_StatsThreadStarted = false;
+	m_IsLoopback = false;
 	m_StopThread = false;
 	m_CaptureThread = new PcapThread();
 	m_StatsThread = new PcapThread();
@@ -127,7 +131,7 @@ void PcapLiveDevice::onPacketArrives(uint8_t *user, const struct pcap_pkthdr *pk
 		return;
 	}
 
-	RawPacket rawPacket(packet, pkthdr->caplen, pkthdr->ts, false, LINKTYPE_ETHERNET);
+	RawPacket rawPacket(packet, pkthdr->caplen, pkthdr->ts, false, pThis->getLinkType());
 
 	if (pThis->m_cbOnPacketArrives != NULL)
 		pThis->m_cbOnPacketArrives(&rawPacket, pThis, pThis->m_cbOnPacketArrivesUserCookie);
@@ -144,7 +148,7 @@ void PcapLiveDevice::onPacketArrivesNoCallback(uint8_t *user, const struct pcap_
 
 	uint8_t* packetData = new uint8_t[pkthdr->caplen];
 	memcpy(packetData, packet, pkthdr->caplen);
-	RawPacket* rawPacketPtr = new RawPacket(packetData, pkthdr->caplen, pkthdr->ts, true, LINKTYPE_ETHERNET);
+	RawPacket* rawPacketPtr = new RawPacket(packetData, pkthdr->caplen, pkthdr->ts, true, pThis->getLinkType());
 	pThis->m_CapturedPackets->pushBack(rawPacketPtr);
 }
 
@@ -157,7 +161,7 @@ void PcapLiveDevice::onPacketArrivesBlockingMode(uint8_t *user, const struct pca
 		return;
 	}
 
-	RawPacket rawPacket(packet, pkthdr->caplen, pkthdr->ts, false, LINKTYPE_ETHERNET);
+	RawPacket rawPacket(packet, pkthdr->caplen, pkthdr->ts, false, pThis->getLinkType());
 
 	if (pThis->m_cbOnPacketArrivesBlockingMode != NULL)
 		if (pThis->m_cbOnPacketArrivesBlockingMode(&rawPacket, pThis, pThis->m_cbOnPacketArrivesBlockingModeUserCookie))
@@ -210,14 +214,85 @@ void* PcapLiveDevice::statsThreadMain(void *ptr)
 	return 0;
 }
 
-bool PcapLiveDevice::open(DeviceMode mode)
+pcap_t* PcapLiveDevice::doOpen(const DeviceConfiguration& config)
 {
-	char errbuf[PCAP_ERRBUF_SIZE];
-	m_PcapDescriptor = pcap_open_live(m_Name, 9000, mode, LIBPCAP_OPEN_LIVE_TIMEOUT, errbuf);
-	m_PcapSendDescriptor = pcap_open_live(m_Name, 9000, mode, LIBPCAP_OPEN_LIVE_TIMEOUT, errbuf);
-	if (m_PcapDescriptor == NULL || m_PcapSendDescriptor == NULL)
+	char errbuf[PCAP_ERRBUF_SIZE] = {'\0'};
+	pcap_t* pcap = pcap_create(m_Name, errbuf);
+	if (!pcap)
 	{
 		LOG_ERROR("%s", errbuf);
+		return pcap;
+	}
+	int ret = pcap_set_snaplen(pcap, DEFAULT_SNAPLEN);
+	if (ret != 0)
+	{
+		LOG_ERROR("%s", pcap_geterr(pcap));
+	}
+	ret = pcap_set_promisc(pcap, config.mode);
+	if (ret != 0)
+	{
+		LOG_ERROR("%s", pcap_geterr(pcap));
+	}
+
+	int timeout = (config.packetBufferTimeoutMs <= 0 ? LIBPCAP_OPEN_LIVE_TIMEOUT : config.packetBufferTimeoutMs);
+	ret = pcap_set_timeout(pcap, timeout);
+	if (ret != 0)
+	{
+		LOG_ERROR("%s", pcap_geterr(pcap));
+	}
+
+	if (config.packetBufferSize >= 100)
+	{
+		ret = pcap_set_buffer_size(pcap, config.packetBufferSize);
+		if (ret != 0)
+		{
+			LOG_ERROR("%s", pcap_geterr(pcap));
+		}
+	}
+
+#ifdef HAS_PCAP_IMMEDIATE_MODE
+	ret = pcap_set_immediate_mode(pcap, 1);
+	if (ret == 0)
+	{
+		LOG_DEBUG("Immediate mode is activated");
+	} else {
+		LOG_ERROR("Failed to activate immediate mode, error code: '%d', error message: '%s'",
+			       ret, pcap_geterr(pcap));
+	}
+#endif
+
+	ret = pcap_activate(pcap);
+	if (ret != 0)
+	{
+		LOG_ERROR("%s", pcap_geterr(pcap));
+		pcap_close(pcap);
+		pcap = NULL;
+	}
+
+	if (pcap)
+	{
+		int dlt = pcap_datalink(pcap);
+		const char *dlt_name = pcap_datalink_val_to_name(dlt);
+		if (dlt_name)
+		{
+			LOG_DEBUG("link-type %u: %s (%s)\n", dlt, dlt_name, pcap_datalink_val_to_description(dlt));
+		}
+		else
+		{
+			LOG_DEBUG("link-type %u\n", dlt);
+		}
+
+		m_LinkType = static_cast<LinkLayerType>(dlt);
+	}
+	return pcap;
+}
+
+bool PcapLiveDevice::open(const DeviceConfiguration& config)
+{
+	m_PcapDescriptor = doOpen(config);
+	m_PcapSendDescriptor = doOpen(config);
+	if (m_PcapDescriptor == NULL || m_PcapSendDescriptor == NULL)
+	{
 		m_DeviceOpened = false;
 		return false;
 	}
@@ -225,12 +300,14 @@ bool PcapLiveDevice::open(DeviceMode mode)
 	LOG_DEBUG("Device '%s' opened", m_Name);
 
 	m_DeviceOpened = true;
+
 	return true;
 }
 
 bool PcapLiveDevice::open()
 {
-	return open(Promiscuous);
+	DeviceConfiguration defaultConfig;
+	return open(defaultConfig);
 }
 
 void PcapLiveDevice::close()
@@ -342,8 +419,10 @@ int PcapLiveDevice::startCaptureBlockingMode(OnPacketArrivesStopBlocking onPacke
 	m_cbOnPacketArrivesBlockingMode = onPacketArrives;
 	m_cbOnPacketArrivesBlockingModeUserCookie = userCookie;
 
-	clock_t startTime = clock();
-	double diffSec = 0;
+	long startTimeSec = 0, startTimeNSec = 0;
+	clockGetTime(startTimeSec, startTimeNSec);
+
+	long curTimeSec = 0, curTimeNSec = 0;
 
 	m_CaptureThreadStarted = true;
 	m_StopThread = false;
@@ -354,16 +433,15 @@ int PcapLiveDevice::startCaptureBlockingMode(OnPacketArrivesStopBlocking onPacke
 		{
 			pcap_dispatch(m_PcapDescriptor, -1, onPacketArrivesBlockingMode, (uint8_t*)this);
 		}
-		diffSec = timeout;
+		curTimeSec = startTimeSec + timeout;
 	}
 	else
 	{
 
-		while (!m_StopThread && diffSec <= (double)timeout)
+		while (!m_StopThread && curTimeSec <= (startTimeSec + timeout))
 		{
 			pcap_dispatch(m_PcapDescriptor, -1, onPacketArrivesBlockingMode, (uint8_t*)this);
-			double diffTicks = clock() - startTime;
-			diffSec = diffTicks/CLOCKS_PER_SEC;
+			clockGetTime(curTimeSec, curTimeNSec);
 		}
 	}
 
@@ -374,7 +452,7 @@ int PcapLiveDevice::startCaptureBlockingMode(OnPacketArrivesStopBlocking onPacke
 	m_cbOnPacketArrivesBlockingMode = NULL;
 	m_cbOnPacketArrivesBlockingModeUserCookie = NULL;
 
-	if (diffSec > (double)timeout)
+	if (curTimeSec > (startTimeSec + timeout))
 		return -1;
 	return 1;
 }
@@ -489,7 +567,7 @@ int PcapLiveDevice::sendPackets(const RawPacketVector& rawPackets)
 			packetsSent++;
 	}
 
-	LOG_DEBUG("%d packets sent successfully. %d packets not sent", packetsSent, rawPackets.size()-packetsSent);
+	LOG_DEBUG("%d packets sent successfully. %d packets not sent", packetsSent, (int)rawPackets.size()-packetsSent);
 	return packetsSent;
 }
 
@@ -510,7 +588,7 @@ std::string PcapLiveDevice::printThreadId(PcapThread* id)
 
 void PcapLiveDevice::setDeviceMtu()
 {
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 
 	uint32_t mtuValue = 0;
 	LPADAPTER adapter = PacketOpenAdapter((char*)m_Name);
@@ -565,7 +643,7 @@ void PcapLiveDevice::setDeviceMtu()
 
 void PcapLiveDevice::setDeviceMacAddress()
 {
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 
 	LPADAPTER adapter = PacketOpenAdapter((char*)m_Name);
 	if (adapter == NULL)
@@ -584,8 +662,11 @@ void PcapLiveDevice::setDeviceMacAddress()
     {
         if(oidData->Length == 6)
         {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
             /* copy value from driver */
         	m_MacAddress = MacAddress(oidData->Data[0], oidData->Data[1], oidData->Data[2], oidData->Data[3], oidData->Data[4], oidData->Data[5]);
+#pragma GCC diagnostic pop
         	LOG_DEBUG("   MAC address: %s", m_MacAddress.toString().c_str());
         } else
         {
@@ -623,7 +704,7 @@ void PcapLiveDevice::setDeviceMacAddress()
 	mib[4] = NET_RT_IFLIST;
 	mib[5] = if_nametoindex(m_Name);
 
-	if ((mib[5] == 0)){
+	if (mib[5] == 0){
 		LOG_ERROR("Error in retrieving MAC address: if_nametoindex error");
 		return;
 	}
@@ -649,7 +730,7 @@ void PcapLiveDevice::setDeviceMacAddress()
 
 void PcapLiveDevice::setDefaultGateway()
 {
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 	ULONG outBufLen = sizeof (IP_ADAPTER_INFO);
 	uint8_t* buffer = new uint8_t[outBufLen];
 	PIP_ADAPTER_INFO adapterInfo = (IP_ADAPTER_INFO*)buffer;

@@ -1,16 +1,16 @@
 #define LOG_MODULE PacketLogModuleSllLayer
 
-#include <SllLayer.h>
-#include <Logger.h>
-#include <IPv4Layer.h>
-#include <IPv6Layer.h>
-#include <PayloadLayer.h>
-#include <ArpLayer.h>
-#include <VlanLayer.h>
-#include <PPPoELayer.h>
-#include <MplsLayer.h>
+#include "SllLayer.h"
+#include "Logger.h"
+#include "IPv4Layer.h"
+#include "IPv6Layer.h"
+#include "PayloadLayer.h"
+#include "ArpLayer.h"
+#include "VlanLayer.h"
+#include "PPPoELayer.h"
+#include "MplsLayer.h"
 #include <string.h>
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 #include <winsock2.h>
 #elif LINUX
 #include <in.h>

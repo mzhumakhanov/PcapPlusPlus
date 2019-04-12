@@ -1,10 +1,10 @@
 #ifndef PCAPP_PCAP_REMOTE_DEVICE_LIST
 #define PCAPP_PCAP_REMOTE_DEVICE_LIST
 
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 
-#include <IpAddress.h>
-#include <PcapRemoteDevice.h>
+#include "IpAddress.h"
+#include "PcapRemoteDevice.h"
 
 /// @file
 
@@ -34,7 +34,7 @@ namespace pcpp
 		PcapRemoteAuthentication* m_RemoteAuthentication;
 
 		// private c'tor. User should create the list via static methods PcapRemoteDeviceList::getRemoteDeviceList()
-		PcapRemoteDeviceList() : m_RemoteMachineIpAddress(NULL), m_RemoteMachinePort(0), m_RemoteAuthentication(NULL) {};
+		PcapRemoteDeviceList() : m_RemoteMachineIpAddress(NULL), m_RemoteMachinePort(0), m_RemoteAuthentication(NULL) {}
 		// private copy c'tor
 		PcapRemoteDeviceList(const PcapRemoteDeviceList& other);
 		PcapRemoteDeviceList& operator=(const PcapRemoteDeviceList& other);

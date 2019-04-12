@@ -1,9 +1,9 @@
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 
 #define LOG_MODULE PcapLogModuleRemoteDevice
 
-#include <PcapRemoteDevice.h>
-#include <Logger.h>
+#include "PcapRemoteDevice.h"
+#include "Logger.h"
 #include <pcap.h>
 
 

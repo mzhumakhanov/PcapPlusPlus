@@ -1,6 +1,6 @@
 #define LOG_MODULE PacketLogModuleSSLLayer
 
-#if defined(WIN32) || defined(WINx64) //for using ntohl, ntohs, etc.
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV) //for using ntohl, ntohs, etc.
 #include <winsock2.h>
 #elif LINUX
 #include <in.h> //for using ntohl, ntohs, etc.
@@ -10,8 +10,8 @@
 #include <string.h>
 #include <sstream>
 #include <map>
-#include <Logger.h>
-#include <SSLHandshake.h>
+#include "Logger.h"
+#include "SSLHandshake.h"
 
 
 namespace pcpp
@@ -1181,7 +1181,7 @@ SSLClientHelloMessage::SSLClientHelloMessage(uint8_t* data, size_t dataLen, SSLH
 	uint8_t* extensionPos = extensionLengthPos + sizeof(uint16_t);
 	uint8_t* curPos = extensionPos;
 	size_t messageLen = getMessageLength();
-	while ((curPos - extensionPos) < extensionLength && (curPos - m_Data) < messageLen)
+	while ((curPos - extensionPos) < (int)extensionLength && (curPos - m_Data) < (int)messageLen)
 	{
 		SSLExtension* newExt = NULL;
 		uint16_t sslExtType = ntohs(*(uint16_t*)curPos);
@@ -1323,7 +1323,7 @@ SSLServerHelloMessage::SSLServerHelloMessage(uint8_t* data, size_t dataLen, SSLH
 	uint8_t* extensionPos = extensionLengthPos + sizeof(uint16_t);
 	uint8_t* curPos = extensionPos;
 	size_t messageLen = getMessageLength();
-	while ((curPos - extensionPos) < extensionLength && (curPos - m_Data) < messageLen)
+	while ((curPos - extensionPos) < (int)extensionLength && (curPos - m_Data) < (int)messageLen)
 	{
 		SSLExtension* newExt = NULL;
 		uint16_t sslExtType = ntohs(*(uint16_t*)curPos);
@@ -1484,7 +1484,7 @@ SSLCertificateMessage::SSLCertificateMessage(uint8_t* data, size_t dataLen, SSLH
 			certificateFull = false;
 		}
 
-		LOG_DEBUG("Parsing certificate: pos=%d; len=%d\n", curPos-data, certificateLength);
+		LOG_DEBUG("Parsing certificate: pos=%d; len=%d\n", (int)(curPos-data), (int)certificateLength);
 		SSLx509Certificate* newCert = new SSLx509Certificate(curPos, certificateLength, certificateFull);
 		m_CertificateList.pushBack(newCert);
 
@@ -1506,7 +1506,7 @@ SSLx509Certificate* SSLCertificateMessage::getCertificate(int index)
 {
 	if (index < 0 || index > (int)m_CertificateList.size())
 	{
-		LOG_DEBUG("certificate index out of range: asked for index %d, total size is %d", index, m_CertificateList.size());
+		LOG_DEBUG("certificate index out of range: asked for index %d, total size is %d", index, (int)m_CertificateList.size());
 		return NULL;
 	}
 

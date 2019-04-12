@@ -58,37 +58,37 @@
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="PcapPlusPlusPropertySheet.props" />
+    <Import Project="GitInfoPropertySheet.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="PcapPlusPlusPropertySheet.props" />
+    <Import Project="GitInfoPropertySheet.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="PcapPlusPlusPropertySheet.props" />
+    <Import Project="GitInfoPropertySheet.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="PcapPlusPlusPropertySheet.props" />
+    <Import Project="GitInfoPropertySheet.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <IncludePath>$(PcapPlusPlusHome)\Common++\header;$(IncludePath)</IncludePath>
     <OutDir>$(PcapPlusPlusHome)\Common++\Lib</OutDir>
     <IntDir>$(PcapPlusPlusHome)\Common++\Obj</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <IncludePath>$(PcapPlusPlusHome)\Common++\header;$(IncludePath)</IncludePath>
     <OutDir>$(PcapPlusPlusHome)\Common++\Lib</OutDir>
     <IntDir>$(PcapPlusPlusHome)\Common++\Obj</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>$(PcapPlusPlusHome)\Common++\header;$(IncludePath)</IncludePath>
     <OutDir>$(PcapPlusPlusHome)\Common++\Lib</OutDir>
     <IntDir>$(PcapPlusPlusHome)\Common++\Obj</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>$(PcapPlusPlusHome)\Common++\header;$(IncludePath)</IncludePath>
     <OutDir>$(PcapPlusPlusHome)\Common++\Lib</OutDir>
     <IntDir>$(PcapPlusPlusHome)\Common++\Obj</IntDir>
   </PropertyGroup>
@@ -97,9 +97,10 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;MSVC;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;MSVC;_CRT_SECURE_NO_WARNINGS;GIT_BRANCH="$(GitBranch)";GIT_COMMIT="$(GitCommit)"</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <UndefinePreprocessorDefinitions>%(UndefinePreprocessorDefinitions)</UndefinePreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(PcapPlusPlusHome)\Common++\header;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -109,6 +110,9 @@
 xcopy "$(PcapPlusPlusHome)\Common++\Lib\Common++.pdb" "$(PcapPlusPlusHome)\Dist\" /F /R /Y /I
 xcopy "$(PcapPlusPlusHome)\Common++\header\*" "$(PcapPlusPlusHome)\Dist\header" /F /R /Y /I</Command>
     </PostBuildEvent>
+    <PreBuildEvent>
+      <Command>$(PcapPlusPlusHome)\mk\vs2015\fetch-git-info.bat</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -117,8 +121,9 @@ xcopy "$(PcapPlusPlusHome)\Common++\header\*" "$(PcapPlusPlusHome)\Dist\header" 
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;GIT_BRANCH="$(GitBranch)";GIT_COMMIT="$(GitCommit)";%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>$(PcapPlusPlusHome)\Common++\header;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -130,15 +135,19 @@ xcopy "$(PcapPlusPlusHome)\Common++\header\*" "$(PcapPlusPlusHome)\Dist\header" 
 xcopy "$(PcapPlusPlusHome)\Common++\Lib\Common++.pdb" "$(PcapPlusPlusHome)\Dist\" /F /R /Y /I
 xcopy "$(PcapPlusPlusHome)\Common++\header\*" "$(PcapPlusPlusHome)\Dist\header" /F /R /Y /I</Command>
     </PostBuildEvent>
+    <PreBuildEvent>
+      <Command>$(PcapPlusPlusHome)\mk\vs2015\fetch-git-info.bat</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WINx64;MSVC;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WINx64;MSVC;_CRT_SECURE_NO_WARNINGS;GIT_BRANCH="$(GitBranch)";GIT_COMMIT="$(GitCommit)"</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <UndefinePreprocessorDefinitions>%(UndefinePreprocessorDefinitions)</UndefinePreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(PcapPlusPlusHome)\Common++\header;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -148,6 +157,9 @@ xcopy "$(PcapPlusPlusHome)\Common++\header\*" "$(PcapPlusPlusHome)\Dist\header" 
 xcopy "$(PcapPlusPlusHome)\Common++\Lib\Common++.pdb" "$(PcapPlusPlusHome)\Dist\" /F /R /Y /I
 xcopy "$(PcapPlusPlusHome)\Common++\header\*" "$(PcapPlusPlusHome)\Dist\header" /F /R /Y /I</Command>
     </PostBuildEvent>
+    <PreBuildEvent>
+      <Command>$(PcapPlusPlusHome)\mk\vs2015\fetch-git-info.bat</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -156,8 +168,9 @@ xcopy "$(PcapPlusPlusHome)\Common++\header\*" "$(PcapPlusPlusHome)\Dist\header" 
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WINx64;NDEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WINx64;NDEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;GIT_BRANCH="$(GitBranch)";GIT_COMMIT="$(GitCommit)";%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>$(PcapPlusPlusHome)\Common++\header;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -169,23 +182,32 @@ xcopy "$(PcapPlusPlusHome)\Common++\header\*" "$(PcapPlusPlusHome)\Dist\header" 
 xcopy "$(PcapPlusPlusHome)\Common++\Lib\Common++.pdb" "$(PcapPlusPlusHome)\Dist\" /F /R /Y /I
 xcopy "$(PcapPlusPlusHome)\Common++\header\*" "$(PcapPlusPlusHome)\Dist\header" /F /R /Y /I</Command>
     </PostBuildEvent>
+    <PreBuildEvent>
+      <Command>$(PcapPlusPlusHome)\mk\vs2015\fetch-git-info.bat</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Common++\header\GeneralUtils.h" />
     <ClInclude Include="..\..\Common++\header\IpAddress.h" />
     <ClInclude Include="..\..\Common++\header\IpUtils.h" />
     <ClInclude Include="..\..\Common++\header\Logger.h" />
     <ClInclude Include="..\..\Common++\header\LRUList.h" />
     <ClInclude Include="..\..\Common++\header\MacAddress.h" />
+    <ClInclude Include="..\..\Common++\header\PcapPlusPlusVersion.h" />
     <ClInclude Include="..\..\Common++\header\PlatformSpecificUtils.h" />
     <ClInclude Include="..\..\Common++\header\PointerVector.h" />
     <ClInclude Include="..\..\Common++\header\SystemUtils.h" />
+    <ClInclude Include="..\..\Common++\header\TablePrinter.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Common++\src\GeneralUtils.cpp" />
     <ClCompile Include="..\..\Common++\src\IpAddress.cpp" />
     <ClCompile Include="..\..\Common++\src\IpUtils.cpp" />
     <ClCompile Include="..\..\Common++\src\Logger.cpp" />
     <ClCompile Include="..\..\Common++\src\MacAddress.cpp" />
+    <ClCompile Include="..\..\Common++\src\PcapPlusPlusVersion.cpp" />
     <ClCompile Include="..\..\Common++\src\SystemUtils.cpp" />
+    <ClCompile Include="..\..\Common++\src\TablePrinter.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

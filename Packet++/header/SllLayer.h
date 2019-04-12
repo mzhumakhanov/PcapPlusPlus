@@ -1,8 +1,8 @@
 #ifndef PACKETPP_SLL_LAYER
 #define PACKETPP_SLL_LAYER
 
-#include <MacAddress.h>
-#include <Layer.h>
+#include "MacAddress.h"
+#include "Layer.h"
 
 /// @file
 
@@ -101,6 +101,8 @@ namespace pcpp
 		void computeCalculateFields();
 
 		std::string toString();
+
+		OsiModelLayer getOsiModelLayer() { return OsiModelDataLinkLayer; }
 	};
 
 } // namespace pcpp

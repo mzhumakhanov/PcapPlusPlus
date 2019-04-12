@@ -18,7 +18,7 @@ namespace pcpp
 		/**
 		 * Unknown protocol (or unsupported by PcapPlusPlus)
 		 */
-		Unknown = 0x00,
+		UnknownProtocol = 0x00,
 
 		/**
 		 * Ethernet protocol
@@ -163,7 +163,71 @@ namespace pcpp
 		/**
 		 * IGMPv3 protocol
 		 */
-		IGMPv3 = 0x800000
+		IGMPv3 = 0x800000,
+
+		/**
+		 * Generic payload (no specific protocol)
+		 */
+		GenericPayload = 0x1000000,
+
+		/**
+		 * VXLAN protocol
+		 */
+		VXLAN = 0x2000000,
+
+		/**
+		 * SIP request protocol
+		 */
+		SIPRequest = 0x4000000,
+
+		/**
+		 * SIP response protocol
+		 */
+		SIPResponse = 0x8000000,
+
+		/**
+		 * SIP protocol (aggregation bitmask of SIPRequest and SIPResponse protocols)
+		 */
+		SIP = 0x4000000 | 0x8000000,
+
+		/**
+		 * SDP protocol
+		 */
+		SDP = 0x10000000,
+
+		/**
+		 * Packet trailer
+		 */
+		PacketTrailer = 0x20000000,
+
+		/**
+		 * RADIUS protocol
+		 */
+		Radius = 0x40000000
+	};
+
+
+	/**
+	 * An enum representing OSI model layers
+	 */
+	enum OsiModelLayer
+	{
+		/** Physical layer (layer 1) */
+		OsiModelPhysicalLayer = 1,
+		/** Data link layer (layer 2) */
+		OsiModelDataLinkLayer = 2,
+		/** Network layer (layer 3) */
+		OsiModelNetworkLayer = 3,
+		/** Transport layer (layer 4) */
+		OsiModelTransportLayer = 4,
+		/** Session layer (layer 5) */
+		OsiModelSesionLayer = 5,
+		/** Presentation layer (layer 6) */
+		OsiModelPresentationLayer = 6,
+		/** Application layer (layer 7) */
+		OsiModelApplicationLayer = 7,
+		/** Unknown / null layer */
+		OsiModelLayerUnknown = 8
 	};
 
 } //namespace pcpp

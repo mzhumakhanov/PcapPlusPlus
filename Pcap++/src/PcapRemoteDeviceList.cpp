@@ -1,10 +1,10 @@
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 
 #define LOG_MODULE PcapLogModuleRemoteDevice
 
-#include <PcapRemoteDeviceList.h>
-#include <Logger.h>
-#include <IpUtils.h>
+#include "PcapRemoteDeviceList.h"
+#include "Logger.h"
+#include "IpUtils.h"
 #include <ws2tcpip.h>
 
 namespace pcpp
@@ -73,7 +73,7 @@ PcapRemoteDeviceList* PcapRemoteDeviceList::getRemoteDeviceList(IPAddress* ipAdd
 
 PcapRemoteDevice* PcapRemoteDeviceList::getRemoteDeviceByIP(const char* ipAddrAsString)
 {
-	std::auto_ptr<IPAddress> apAddr = IPAddress::fromString(ipAddrAsString);
+	IPAddress::Ptr_t apAddr = IPAddress::fromString(ipAddrAsString);
 	if (!apAddr->isValid())
 	{
 		LOG_ERROR("IP address illegal");

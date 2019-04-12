@@ -1,7 +1,7 @@
 #ifndef PACKETPP_PPPOE_LAYER
 #define PACKETPP_PPPOE_LAYER
 
-#include <Layer.h>
+#include "Layer.h"
 #include <vector>
 #include <string.h>
 
@@ -86,7 +86,7 @@ namespace pcpp
 		 * Get a pointer to the PPPoE header. Notice this points directly to the data, so every change will change the actual packet data
 		 * @return A pointer to the pppoe_header
 		 */
-		inline pppoe_header* getPPPoEHeader() { return (pppoe_header*)m_Data; };
+		inline pppoe_header* getPPPoEHeader() { return (pppoe_header*)m_Data; }
 
 		// abstract methods implementation
 
@@ -94,6 +94,8 @@ namespace pcpp
 		 * Calculate @ref pppoe_header#payloadLength field
 		 */
 		virtual void computeCalculateFields();
+
+		OsiModelLayer getOsiModelLayer() { return OsiModelDataLinkLayer; }
 
 	protected:
 
@@ -280,7 +282,7 @@ namespace pcpp
 		 * @param[in] prevLayer A pointer to the previous layer
 		 * @param[in] packet A pointer to the Packet instance where layer will be stored in
 		 */
-		PPPoEDiscoveryLayer(uint8_t* data, size_t dataLen, Layer* prevLayer, Packet* packet) : PPPoELayer(data, dataLen, prevLayer, packet) { m_Protocol = PPPoEDiscovery; m_TagCount = -1; }
+		PPPoEDiscoveryLayer(uint8_t* data, size_t dataLen, Layer* prevLayer, Packet* packet) : PPPoELayer(data, dataLen, prevLayer, packet) { m_Protocol = PPPoEDiscovery; m_TagCount = -1; m_DataLen = getHeaderLen(); }
 
 		/**
 		 * A constructor that allocates a new PPPoE Discovery header with version, type, PPPoE code and session ID
@@ -365,7 +367,7 @@ namespace pcpp
 		/**
 		 * Does nothing for this layer (PPPoE discovery is always the last layer)
 		 */
-		virtual void parseNextLayer() {};
+		virtual void parseNextLayer() {}
 
 		/**
 		 * @return The header length which is size of strcut pppoe_header plus the total size of tags

@@ -4,6 +4,12 @@ endif
 
 include ../mk/platform.mk
 
+ifeq ($(wildcard ../mk/PcapPlusPlus.mk),)
+  $(error PcapPlusPlus.mk not found! Please run configure script first)
+endif
+
+include ../mk/PcapPlusPlus.mk
+
 SOURCES := $(wildcard src/*.cpp)
 OBJS_FILENAMES_DEBUG := $(patsubst src/%.cpp,Obj/%.o,$(SOURCES))
 OBJS_FILENAMES := $(filter-out Obj/debug_new.o,$(OBJS_FILENAMES_DEBUG))
@@ -17,6 +23,10 @@ endif
 ifdef MAC_OS_X
 DEPS := -DMAC_OS_X
 endif
+
+GIT_CUR_COMMIT := $(shell git rev-parse --verify HEAD)
+GIT_CUR_BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
+DEPS += -DGIT_COMMIT=\"$(GIT_CUR_COMMIT)\" -DGIT_BRANCH=\"$(GIT_CUR_BRANCH)\"
 
 INCLUDES := -I"./src" \
 			-I"./header"
@@ -34,38 +44,34 @@ endif
 			
 Obj/%.o: src/%.cpp
 	@echo 'Building file: $<'
-	@echo 'Invoking: GCC C++ Compiler'
-	$(G++) $(DEPS) $(INCLUDES) -O2 -g -Wall -c -fmessage-length=0 -MMD -MP -MF"$(@:Obj/%.o=Obj/%.d)" -MT"$(@:Obj/%.o=Obj/%.d)" -o "$@" "$<"
-	@echo 'Finished building: $<'
-	@echo ' '
+	@$(CXX) $(DEPS) $(INCLUDES) $(PCAPPP_BUILD_FLAGS) -O2 -g -Wall -c -fmessage-length=0 -MMD -MP -MF"$(@:Obj/%.o=Obj/%.d)" -MT"$(@:Obj/%.o=Obj/%.d)" -o "$@" "$<"
 
-# All Target
-all: Common++.lib Common++.debug
+CUR_TARGET := $(notdir $(shell pwd))
+
+.SILENT:
+
+all: start Common++.lib Common++.debug
+
+start:
+	@echo '==> Building target: $(CUR_TARGET)'
 
 create-directories:
-	$(MKDIR) -p Obj
-	$(MKDIR) -p Lib
-	$(MKDIR) -p Lib/Debug
-	$(MKDIR) -p Lib/Release
+	@$(MKDIR) -p Obj
+	@$(MKDIR) -p Lib
+	@$(MKDIR) -p Lib/Debug
+	@$(MKDIR) -p Lib/Release
 
-# Tool invocations
 Common++.lib: create-directories $(OBJS_FILENAMES)
-	@echo 'Building target: $@'
-	@echo 'Invoking: GCC Archiver'
-	$(AR) -r "Lib/Release/$(LIB_PREFIX)Common++$(LIB_EXT)" $(OBJS_FILENAMES)
-	@echo 'Finished successfully building target: $@'
+	@$(AR) -r "Lib/Release/$(LIB_PREFIX)Common++$(LIB_EXT)" $(OBJS_FILENAMES)
+	@echo 'Finished successfully building: $@'
 	@echo ' '
 	
 Common++.debug: create-directories $(OBJS_FILENAMES_DEBUG)
-	@echo 'Building target: $@'
-	@echo 'Invoking: GCC Archiver'
-	$(AR) -r "Lib/Debug/$(LIB_PREFIX)Common++$(LIB_EXT)" $(OBJS_FILENAMES_DEBUG)
-	@echo 'Finished successfully building target: $@'
+	@$(AR) -r "Lib/Debug/$(LIB_PREFIX)Common++$(LIB_EXT)" $(OBJS_FILENAMES_DEBUG)
+	@echo 'Finished successfully building: $@'
 	@echo ' '
 
-
-# Other Targets
 clean:
-	$(RM) -rf ./Obj/*
-	$(RM) -rf ./Lib/*
-	@echo 'Clean finished'
+	@$(RM) -rf ./Obj/*
+	@$(RM) -rf ./Lib/*
+	@echo 'Clean finished: $(CUR_TARGET)'

@@ -2,9 +2,9 @@
 
 #include <stdio.h>
 #include <cerrno>
-#include <PcapFileDevice.h>
+#include "PcapFileDevice.h"
 #include "light_pcapng_ext.h"
-#include <Logger.h>
+#include "Logger.h"
 #include <string.h>
 #include <fstream>
 
@@ -78,7 +78,8 @@ IFileReaderDevice::IFileReaderDevice(const char* fileName) : IFileDevice(fileNam
 IFileReaderDevice* IFileReaderDevice::getReader(const char* fileName)
 {
 	std::string fileNameStr = std::string(fileName);
-	std::string fileExtension = fileNameStr.substr(fileNameStr.find_last_of("."));
+	size_t dotLocation = fileNameStr.find_last_of(".");
+	std::string fileExtension = ( dotLocation == std::string::npos ? "" : fileNameStr.substr(dotLocation) );
 	if (fileExtension == ".pcapng")
 		return new PcapNgFileReaderDevice(fileName);
 	else
@@ -89,6 +90,28 @@ uint64_t IFileReaderDevice::getFileSize()
 {
 	std::ifstream fileStream(m_FileName, std::ifstream::ate | std::ifstream::binary);
 	return fileStream.tellg();
+}
+
+int IFileReaderDevice::getNextPackets(RawPacketVector& packetVec, int numOfPacketsToRead)
+{
+	int numOfPacketsRead = 0;
+
+	for (; numOfPacketsToRead < 0 || numOfPacketsRead < numOfPacketsToRead; numOfPacketsRead++)
+	{
+		RawPacket* newPacket = new RawPacket();
+		bool packetRead = getNextPacket(*newPacket);
+		if (packetRead)
+		{
+			packetVec.pushBack(newPacket);
+		}
+		else
+		{
+			delete newPacket;
+			break;
+		}
+	}
+
+	return numOfPacketsRead;
 }
 
 
@@ -127,19 +150,6 @@ bool PcapFileReaderDevice::open()
 	}
 
 	m_PcapLinkLayerType = static_cast<LinkLayerType>(pcap_datalink(m_PcapDescriptor));
-	switch(m_PcapLinkLayerType)
-	{
-		case LINKTYPE_ETHERNET:
-		case LINKTYPE_LINUX_SLL:
-		case LINKTYPE_NULL:
-		case LINKTYPE_RAW:
-		case LINKTYPE_DLT_RAW1:
-		case LINKTYPE_DLT_RAW2:
-			break;
-		default:
-			LOG_ERROR("Cannot open file reader device for filename '%s': the link type %d is not supported", m_FileName, m_PcapLinkLayerType);
-			return false;
-	}
 
 	LOG_DEBUG("Successfully opened file reader device for filename '%s'", m_FileName);
 	m_DeviceOpened = true;
@@ -278,7 +288,7 @@ bool PcapNgFileReaderDevice::getNextPacket(RawPacket& rawPacket, std::string& pa
 
 	uint8_t* myPacketData = new uint8_t[pktHeader.captured_length];
 	memcpy(myPacketData, pktData, pktHeader.captured_length);
-	if (!rawPacket.setRawData(myPacketData, pktHeader.captured_length, pktHeader.timestamp, static_cast<LinkLayerType>(pktHeader.data_link)))
+	if (!rawPacket.setRawData(myPacketData, pktHeader.captured_length, pktHeader.timestamp, static_cast<LinkLayerType>(pktHeader.data_link), pktHeader.original_length))
 	{
 		LOG_ERROR("Couldn't set data to raw packet");
 		return false;
@@ -507,18 +517,12 @@ bool PcapFileWriterDevice::open()
 
 	switch(m_PcapLinkLayerType)
 	{
-		case LINKTYPE_ETHERNET:
-		case LINKTYPE_LINUX_SLL:
-		case LINKTYPE_NULL:
-		case LINKTYPE_DLT_RAW1:
-			break;
 		case LINKTYPE_RAW:
 		case LINKTYPE_DLT_RAW2:
 			LOG_ERROR("The only Raw IP link type supported in libpcap/WinPcap is LINKTYPE_DLT_RAW1, please use that instead");
 			return false;
 		default:
-			LOG_ERROR("The link type %d is not supported", m_PcapLinkLayerType);
-			return false;
+			break;
 	}
 
 	m_NumOfPacketsNotWritten = 0;
@@ -604,7 +608,7 @@ bool PcapFileWriterDevice::open(bool appendMode)
 	if (amountRead != sizeof(pcap_file_header))
 	{
 		if (ferror(m_File))
-			LOG_ERROR("Cannot read pcap header from file '%s', error was: %s", m_FileName, errno);
+			LOG_ERROR("Cannot read pcap header from file '%s', error was: %d", m_FileName, errno);
 		else
 			LOG_ERROR("Cannot read pcap header from file '%s', unknown error", m_FileName);
 
@@ -642,6 +646,38 @@ bool PcapFileWriterDevice::open(bool appendMode)
 PcapNgFileWriterDevice::PcapNgFileWriterDevice(const char* fileName) : IFileWriterDevice(fileName)
 {
 	m_LightPcapNg = NULL;
+	m_CurFilter = "";
+	m_BpfLinkType = -1;
+	m_BpfInitialized = false;
+}
+
+bool PcapNgFileWriterDevice::matchPacketWithFilter(const uint8_t* packetData, size_t packetLen, timeval packetTimestamp, uint16_t linkType)
+{
+	if (m_CurFilter == "")
+		return true;
+
+	int linkTypeAsInt = (int)linkType;
+
+	if (m_BpfLinkType != linkTypeAsInt)
+	{
+		LOG_DEBUG("Compiling the filter '%s' for link type %d", m_CurFilter.c_str(), linkTypeAsInt);
+		if (m_BpfInitialized)
+			pcap_freecode(&m_Bpf);
+		if (pcap_compile_nopcap(9000, linkTypeAsInt, &m_Bpf, m_CurFilter.c_str(), 1, 0) < 0)
+		{
+			m_BpfInitialized = false;
+			return false;
+		}
+
+		m_BpfLinkType = linkTypeAsInt;
+		m_BpfInitialized = true;
+	}
+
+	struct pcap_pkthdr pktHdr;
+	pktHdr.caplen = packetLen;
+	pktHdr.len = packetLen;
+	pktHdr.ts = packetTimestamp;
+	return (pcap_offline_filter(&m_Bpf, &pktHdr, packetData) != 0);
 }
 
 bool PcapNgFileWriterDevice::open(const char* os, const char* hardware, const char* captureApp, const char* fileComment)
@@ -684,7 +720,7 @@ bool PcapNgFileWriterDevice::writePacket(RawPacket const& packet, const char* co
 
 	light_packet_header pktHeader;
 	pktHeader.captured_length = ((RawPacket&)packet).getRawDataLen();
-	pktHeader.original_length = ((RawPacket&)packet).getRawDataLen();
+	pktHeader.original_length = ((RawPacket&)packet).getFrameLength();
 	pktHeader.timestamp = ((RawPacket&)packet).getPacketTimeStamp();
 	pktHeader.data_link = (uint16_t)packet.getLinkLayerType();
 	pktHeader.interface_id = 0;
@@ -699,10 +735,14 @@ bool PcapNgFileWriterDevice::writePacket(RawPacket const& packet, const char* co
 		pktHeader.comment_length = 0;
 	}
 
-	light_write_packet((light_pcapng_t*)m_LightPcapNg, &pktHeader, ((RawPacket&)packet).getRawData());
+	const uint8_t* pktData = ((RawPacket&)packet).getRawData();
+	if(!matchPacketWithFilter(pktData, pktHeader.captured_length, pktHeader.timestamp, pktHeader.data_link))
+	{
+		return false;
+	}
 
+	light_write_packet((light_pcapng_t*)m_LightPcapNg, &pktHeader, pktData);
 	m_NumOfPacketsWritten++;
-
 	return true;
 }
 
@@ -790,6 +830,20 @@ void PcapNgFileWriterDevice::getStatistics(pcap_stat& stats)
 	stats.ps_drop = m_NumOfPacketsNotWritten;
 	stats.ps_ifdrop = 0;
 	LOG_DEBUG("Statistics received for pcap-ng writer device for filename '%s'", m_FileName);
+}
+
+bool PcapNgFileWriterDevice::setFilter(std::string filterAsString)
+{
+	struct bpf_program prog;
+	if (pcap_compile_nopcap(9000, 1, &prog, filterAsString.c_str(), 1, 0) < 0)
+	{
+		return false;
+	}
+	pcap_freecode(&prog);
+
+	m_CurFilter = filterAsString;
+	m_BpfLinkType = -1;
+	return true;
 }
 
 

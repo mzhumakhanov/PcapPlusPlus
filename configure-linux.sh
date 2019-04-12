@@ -1,3 +1,5 @@
+#!/bin/bash
+
 echo ""
 echo "****************************************"
 echo "PcapPlusPlus Linux configuration script "
@@ -9,27 +11,38 @@ SCRIPT=`basename ${BASH_SOURCE[0]}`
 
 # help function
 function HELP {
-   echo -e \\n"Help documentation for ${BOLD}${SCRIPT}.${NORM}"\\n
+   echo -e \\n"Help documentation for ${SCRIPT}."\\n
    echo "This script has 2 modes of operation:"
    echo "  1) Without any switches. In this case the script will guide you through using wizards"
    echo "  2) With switches, as described below"
    echo ""
-   echo -e "${REV}Basic usage:${NORM} ${BOLD}$SCRIPT [-h] [--pf-ring] [--pf-ring-home] [--dpdk] [--dpdk-home] [--dpdk-target]${NORM}"\\n
-   echo "The following switches are recognized."
-   echo "${REV}--default${NORM}      --Setup PcapPlusPlus for Linux without PF_RING or DPDK. In this case you must not set --pf-ring or --dpdk"
+   echo -e "Basic usage: $SCRIPT [-h] [--pf-ring] [--pf-ring-home] [--dpdk] [--dpdk-home] [--use-immediate-mode] [--install-dir] [--libpcap-include-dir] [--libpcap-lib-dir]"\\n
+   echo "The following switches are recognized:"
+   echo "--default             --Setup PcapPlusPlus for Linux without PF_RING or DPDK. In this case you must not set --pf-ring or --dpdk"
    echo ""
-   echo "${REV}--pf-ring${NORM}      --Setup PcapPlusPlus with PF_RING. In this case you must also set --pf-ring-home"
-   echo "${REV}--pf-ring-home${NORM} --Sets PF_RING home directory. Use only when --pf-ring is set"
+   echo "--pf-ring             --Setup PcapPlusPlus with PF_RING. In this case you must also set --pf-ring-home"
+   echo "--pf-ring-home        --Sets PF_RING home directory. Use only when --pf-ring is set"
    echo ""
-   echo "${REV}--dpdk${NORM}         --Setup PcapPlusPlus with DPDK. In this case you must also set --dpdk-home and --dpdk-target"
-   echo "${REV}--dpdk-home${NORM}    --Sets DPDK home directoy. Use only when --dpdk is set"
-   echo "${REV}--dpdk-target${NORM}  --Sets DPDK target directoy (e.g x86_64-native-linuxapp-gcc). Use only when --dpdk is set"
+   echo "--dpdk                --Setup PcapPlusPlus with DPDK. In this case you must also set --dpdk-home"
+   echo "--dpdk-home           --Sets DPDK home directoy. Use only when --dpdk is set"
    echo ""
-   echo -e "${REV}-h|--help${NORM}      --Displays this help message and exits. No further functions are performed."\\n
+   echo "--use-immediate-mode  --Use libpcap immediate mode which enables getting packets as fast as possible (supported on libpcap>=1.5)"
+   echo ""
+   echo "--install-dir         --Installation directory. Default is /usr/local"
+   echo ""
+   echo "--libpcap-include-dir --libpcap header files directory. This parameter is optional and if omitted PcapPlusPlus will look for"
+   echo "                        the header files in the default include paths"
+   echo "--libpcap-lib-dir     --libpcap pre compiled lib directory. This parameter is optional and if omitted PcapPlusPlus will look for"
+   echo "                        the lib file in the default lib paths"
+   echo ""
+   echo -e "-h|--help             --Displays this help message and exits. No further actions are performed"\\n
    echo -e "Examples:"
-   echo -e "      ${BOLD}$SCRIPT --default${NORM}"
-   echo -e "      ${BOLD}$SCRIPT --pf-ring --pf-ring-home /home/myuser/PF_RING${NORM}"
-   echo -e "      ${BOLD}$SCRIPT --dpdk --dpdk-home /home/myuser/dpdk-2.1.0 --dpdk-target x86_64-native-linuxapp-gcc${NORM}"
+   echo -e "      $SCRIPT --default"
+   echo -e "      $SCRIPT --use-immediate-mode"
+   echo -e "      $SCRIPT --libpcap-include-dir /home/myuser/my-libpcap/include --libpcap-lib-dir /home/myuser/my-libpcap/lib"
+   echo -e "      $SCRIPT --install-dir /home/myuser/my-install-dir"
+   echo -e "      $SCRIPT --pf-ring --pf-ring-home /home/myuser/PF_RING"
+   echo -e "      $SCRIPT --dpdk --dpdk-home /home/myuser/dpdk-2.1.0"
    echo ""
    exit 1
 }
@@ -41,7 +54,14 @@ PF_RING_HOME=""
 # initializing DPDK variables
 COMPILE_WITH_DPDK=0
 DPDK_HOME=""
-DPDK_TARGET=""
+HAS_PCAP_IMMEDIATE_MODE=0
+
+# initializing libpcap include/lib dirs to an empty string 
+LIBPCAP_INLCUDE_DIR=""
+LIBPCAP_LIB_DIR=""
+
+# default installation directory
+INSTALL_DIR=/usr/local
 
 #Check the number of arguments. If none are passed, continue to wizard mode.
 NUMARGS=$#
@@ -82,22 +102,11 @@ if [ $NUMARGS -eq 0 ]; then
        esac
    done
 
-   # if compiling with DPDK, get DPDK home dir and DPDK target from the user and set it in DPDK_HOME and DPDK_TARGET accordingly
+   # if compiling with DPDK, get DPDK home dir and set it in DPDK_HOME
    if (( $COMPILE_WITH_DPDK > 0 )) ; then
        while true; do # don't stop until user provides a valid dir
            read -e -p "Enter DPDK source path: " DPDK_HOME
            if [ -d "$DPDK_HOME" ]; then
-               break;
-           else
-               echo "Directory doesn't exist"
-           fi
-       done
-
-       # get DPDK target from the user, make sure it's a valid dir
-       while true; do # don't stop until user provides a valid dir
-           read -e -p "Enter DPDK build path: " -i $DPDK_HOME/ DPDK_TARGET
-           DPDK_TARGET="$(basename $DPDK_TARGET)"
-           if [ -d "$DPDK_HOME/$DPDK_TARGET" ]; then
                break;
            else
                echo "Directory doesn't exist"
@@ -109,9 +118,9 @@ if [ $NUMARGS -eq 0 ]; then
 else
 
    # these are all the possible switches
-   OPTS=`getopt -o h --long default,pf-ring,pf-ring-home:,dpdk,dpdk-home:,dpdk-target:,help -- "$@"`
+   OPTS=`getopt -o h --long default,pf-ring,pf-ring-home:,dpdk,dpdk-home:,help,use-immediate-mode,install-dir:,libpcap-include-dir:,libpcap-lib-dir: -- "$@"`
 
-   # if user put an illegal switch - print HELP and exit 
+   # if user put an illegal switch - print HELP and exit
    if [ $? -ne 0 ]; then
       HELP
    fi
@@ -134,7 +143,7 @@ else
        --pf-ring-home)
          PF_RING_HOME=$2
          if [ ! -d "$PF_RING_HOME" ]; then
-            echo "PG_RING home directory '$PF_RING_HOME' not found. Exiting..."         
+            echo "PG_RING home directory '$PF_RING_HOME' not found. Exiting..."
             exit 1
          fi
          shift 2 ;;
@@ -148,16 +157,31 @@ else
        --dpdk-home)
          DPDK_HOME=$2
          if [ ! -d "$DPDK_HOME" ]; then
-            echo "DPDK home directory '$DPDK_HOME' not found. Exiting..."         
+            echo "DPDK home directory '$DPDK_HOME' not found. Exiting..."
             exit 1
          fi
          shift 2 ;;
 
-       # dpdk-target switch - set DPDK_TARGET and make sure it's a valid dir, otherwise exit
-       --dpdk-target)
-         DPDK_TARGET=$2
-         if [ ! -d "$DPDK_HOME/$DPDK_TARGET" ]; then
-            echo "DPDK target '$DPDK_HOME/$DPDK_TARGET' not found. Exiting..."
+       # enable libpcap immediate mode
+       --use-immediate-mode)
+         HAS_PCAP_IMMEDIATE_MODE=1
+         shift ;;
+
+       # non-default libpcap include dir
+       --libpcap-include-dir)
+         LIBPCAP_INLCUDE_DIR=$2
+         shift 2 ;;
+
+       # non-default libpcap lib dir
+       --libpcap-lib-dir)
+         LIBPCAP_LIB_DIR=$2
+         shift 2 ;;
+
+       # installation directory prefix
+       --install-dir)
+         INSTALL_DIR=$2
+         if [ ! -d "$INSTALL_DIR" ]; then
+            echo "Installation directory '$INSTALL_DIR' not found. Exiting..."
             exit 1
          fi
          shift 2 ;;
@@ -173,7 +197,7 @@ else
 
        # illegal switch
        *)
-         echo -e \\n"Option -${BOLD}$OPTARG${NORM} not allowed."
+         echo -e \\n"Option -$OPTARG not allowed."
          HELP
          ;;
      esac
@@ -185,11 +209,11 @@ else
       exit 1
    fi
 
-   # if --dpdk was set, make sure --dpdk-home and --dpdk-target were also set, otherwise exit with error
-   if [[ $COMPILE_WITH_DPDK > 0 && (( $DPDK_HOME == "" || $DPDK_TARGET == "" )) ]] ; then
-      echo "Switch --dpdk-home and/or --dpdk-target wasn't set. Exiting..."
+   # if --dpdk was set, make sure --dpdk-home is also set, otherwise exit with error
+   if [[ $COMPILE_WITH_DPDK > 0 && $DPDK_HOME == "" ]] ; then
+      echo "Switch --dpdk-home wasn't set. Exiting..."
       exit 1
-   fi 
+   fi
 
    ### End getopts code ###
 fi
@@ -204,10 +228,10 @@ cp -f mk/platform.mk.linux $PLATFORM_MK
 # copy the common (all platforms) PcapPlusPlus.mk
 cp -f mk/PcapPlusPlus.mk.common $PCAPPLUSPLUS_MK
 
-# add the Linux definitions to PcapPlusPlus.mk 
+# add the Linux definitions to PcapPlusPlus.mk
 cat mk/PcapPlusPlus.mk.linux >> $PCAPPLUSPLUS_MK
 
-# set current directory as PCAPPLUSPLUS_HOME in platform.mk  
+# set current directory as PCAPPLUSPLUS_HOME in platform.mk
 echo -e "\n\nPCAPPLUSPLUS_HOME := "$PWD >> $PLATFORM_MK
 
 # set current direcrtory as PCAPPLUSPLUS_HOME in PcapPlusPlus.mk (write it in the first line of the file)
@@ -221,11 +245,25 @@ if (( $COMPILE_WITH_PF_RING > 0 )) ; then
 
    # set PF_RING_HOME variable in platform.mk
    echo -e "\n\nPF_RING_HOME := "$PF_RING_HOME >> $PLATFORM_MK
-  
+
    # set PF_RING_HOME variable in PcapPlusPlus.mk (write it in the second line of the file)
    sed -i "2s|^|PF_RING_HOME := $PF_RING_HOME\n\n|" $PCAPPLUSPLUS_MK
 fi
 
+
+# function to extract DPDK major + minor version from <DPDK_HOM>/pkg/dpdk.spec file
+# return: DPDK version (major + minor only)
+function get_dpdk_version() {
+   echo $(grep "Version" $DPDK_HOME/pkg/dpdk.spec | cut -d' ' -f2 | cut -d'.' -f 1,2)
+}
+
+# function to compare between 2 versions (each constructed of major + minor)
+# param1: first version to compare
+# param2: second version to compate
+# return: 1 if first>=second, 0 otherwise
+function compare_versions() {
+   echo "$1 $2" | awk '{if ($1 >= $2) print 1; else print 0}'
+}
 
 # if compiling with DPDK
 if (( $COMPILE_WITH_DPDK > 0 )) ; then
@@ -233,22 +271,22 @@ if (( $COMPILE_WITH_DPDK > 0 )) ; then
    # add DPDK definitions to PcapPlusPlus.mk
    cat mk/PcapPlusPlus.mk.dpdk >> $PCAPPLUSPLUS_MK
 
+   # if DPDK ver >= 17.11 concat additional definitions to PcapPlusPlus.mk
+   CUR_DPDK_VERSION=$(get_dpdk_version)
+   if [ "$(compare_versions $CUR_DPDK_VERSION 17.11)" -eq "1" ] ; then
+      cat mk/PcapPlusPlus.mk.dpdk_new >> $PCAPPLUSPLUS_MK
+   fi
+
    # set USE_DPDK variable in platform.mk
    echo -e "\n\nUSE_DPDK := 1" >> $PLATFORM_MK
 
    # set DPDK home to RTE_SDK variable in platform.mk
    echo -e "\n\nRTE_SDK := "$DPDK_HOME >> $PLATFORM_MK
 
-   # set DPDK target to RTE_TARGET in platform.mk
-   echo -e "\n\nRTE_TARGET := "$DPDK_TARGET >> $PLATFORM_MK
-
    # set USE_DPDK varaible in PcapPlusPlus.mk
    sed -i "2s|^|USE_DPDK := 1\n\n|" $PCAPPLUSPLUS_MK
 
    # set DPDK home to RTE_SDK variable in PcapPlusPlus.mk
-   sed -i "2s|^|RTE_TARGET := $DPDK_TARGET\n\n|" $PCAPPLUSPLUS_MK
-
-   # set DPDK target to RTE_TARGET in PcapPlusPlus.mk
    sed -i "2s|^|RTE_SDK := $DPDK_HOME\n\n|" $PCAPPLUSPLUS_MK
 
    # set the setup-dpdk script:
@@ -262,9 +300,35 @@ if (( $COMPILE_WITH_DPDK > 0 )) ; then
    # replace the RTE_SDK placeholder with DPDK home
    sed -i "s|###RTE_SDK###|$DPDK_HOME|g" setup-dpdk.sh
 
-   # replace the RTE_TARGET placeholder with DPDK target
-   sed -i "s|###RTE_TARGET###|$DPDK_TARGET|g" setup-dpdk.sh
 fi
 
+if (( $HAS_PCAP_IMMEDIATE_MODE > 0 )) ; then
+   echo -e "HAS_PCAP_IMMEDIATE_MODE := 1\n\n" >> $PCAPPLUSPLUS_MK
+fi
+
+# non-default libpcap include dir
+if [ -n "$LIBPCAP_INLCUDE_DIR" ]; then
+   echo -e "# non-default libpcap include dir" >> $PCAPPLUSPLUS_MK
+   echo -e "LIBPCAP_INLCUDE_DIR := $LIBPCAP_INLCUDE_DIR" >> $PCAPPLUSPLUS_MK
+   echo -e "PCAPPP_INCLUDES += -I\$(LIBPCAP_INLCUDE_DIR)\n" >> $PCAPPLUSPLUS_MK
+fi
+
+# non-default libpcap lib dir
+if [ -n "$LIBPCAP_LIB_DIR" ]; then
+   echo -e "# non-default libpcap lib dir" >> $PCAPPLUSPLUS_MK
+   echo -e "LIBPCAP_LIB_DIR := $LIBPCAP_LIB_DIR" >> $PCAPPLUSPLUS_MK
+   echo -e "PCAPPP_LIBS_DIR += -L\$(LIBPCAP_LIB_DIR)\n" >> $PCAPPLUSPLUS_MK
+fi
+
+# generate installation and uninstallation scripts
+cp mk/install.sh.template mk/install.sh
+sed -i.bak "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" mk/install.sh && rm mk/install.sh.bak
+chmod +x mk/install.sh
+
+cp mk/uninstall.sh.template mk/uninstall.sh
+sed -i.bak "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" mk/uninstall.sh && rm mk/uninstall.sh.bak
+chmod +x mk/install.sh
+
+
 # finished setup script
-echo "PcapPlusPlus configuration is complete. Files created (or modified): $PLATFORM_MK, $PCAPPLUSPLUS_MK"
+echo "PcapPlusPlus configuration is complete. Files created (or modified): $PLATFORM_MK, $PCAPPLUSPLUS_MK, mk/install.sh, mk/uninstall.sh"

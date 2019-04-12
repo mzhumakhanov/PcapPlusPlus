@@ -1,8 +1,8 @@
 #define LOG_MODULE PacketLogModuleSSLLayer
 
-#include <Logger.h>
-#include <SSLLayer.h>
-#if defined(WIN32) || defined(WINx64) //for using ntohl, ntohs, etc.
+#include "Logger.h"
+#include "SSLLayer.h"
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV) //for using ntohl, ntohs, etc.
 #include <winsock2.h>
 #elif LINUX
 #include <in.h> //for using ntohl, ntohs, etc.
@@ -199,7 +199,7 @@ size_t SSLHandshakeLayer::getHandshakeMessagesCount()
 
 SSLHandshakeMessage* SSLHandshakeLayer::getHandshakeMessageAt(int index)
 {
-	if (index < 0 || index >= m_MessageList.size())
+	if (index < 0 || index >= (int)(m_MessageList.size()))
 		return NULL;
 
 	return m_MessageList.at(index);
@@ -299,11 +299,11 @@ uint8_t* SSLApplicationDataLayer::getEncrpytedData()
 
 size_t SSLApplicationDataLayer::getEncrpytedDataLen()
 {
-	size_t result = getHeaderLen() - sizeof(ssl_tls_record_layer);
+	int result = (int)getHeaderLen() - (int)sizeof(ssl_tls_record_layer);
 	if (result < 0)
 		return 0;
 
-	return result;
+	return (size_t)result;
 }
 
 std::string SSLApplicationDataLayer::toString()

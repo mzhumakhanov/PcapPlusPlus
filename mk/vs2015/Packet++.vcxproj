@@ -74,22 +74,18 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <IncludePath>$(PcapPlusPlusHome)\Packet++\header;$(IncludePath);$(PcapPlusPlusHome)\Common++\header</IncludePath>
     <OutDir>$(PcapPlusPlusHome)\Packet++\Lib</OutDir>
     <IntDir>$(PcapPlusPlusHome)\Packet++\Obj</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <IncludePath>$(PcapPlusPlusHome)\Packet++\header;$(IncludePath);$(PcapPlusPlusHome)\Common++\header</IncludePath>
     <OutDir>$(PcapPlusPlusHome)\Packet++\Lib</OutDir>
     <IntDir>$(PcapPlusPlusHome)\Packet++\Obj</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>$(PcapPlusPlusHome)\Packet++\header;$(IncludePath);$(PcapPlusPlusHome)\Common++\header</IncludePath>
     <OutDir>$(PcapPlusPlusHome)\Packet++\Lib</OutDir>
     <IntDir>$(PcapPlusPlusHome)\Packet++\Obj</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>$(PcapPlusPlusHome)\Packet++\header;$(IncludePath);$(PcapPlusPlusHome)\Common++\header</IncludePath>
     <OutDir>$(PcapPlusPlusHome)\Packet++\Lib</OutDir>
     <IntDir>$(PcapPlusPlusHome)\Packet++\Obj</IntDir>
   </PropertyGroup>
@@ -101,6 +97,7 @@
       <PreprocessorDefinitions>WIN32;MSVC;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <UndefinePreprocessorDefinitions>%(UndefinePreprocessorDefinitions)</UndefinePreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(PcapPlusPlusHome)\Packet++\header;$(PcapPlusPlusHome)\Common++\header;$(PcapPlusPlusHome)\3rdParty\EndianPortable\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -120,6 +117,7 @@ xcopy $(PcapPlusPlusHome)\Packet++\header\* "$(PcapPlusPlusHome)\Dist\header" /F
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>$(PcapPlusPlusHome)\Packet++\header;$(PcapPlusPlusHome)\Common++\header;$(PcapPlusPlusHome)\3rdParty\EndianPortable\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -140,6 +138,7 @@ xcopy $(PcapPlusPlusHome)\Packet++\header\* "$(PcapPlusPlusHome)\Dist\header" /F
       <PreprocessorDefinitions>WINx64;MSVC;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <UndefinePreprocessorDefinitions>%(UndefinePreprocessorDefinitions)</UndefinePreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(PcapPlusPlusHome)\Packet++\header;$(PcapPlusPlusHome)\Common++\header;$(PcapPlusPlusHome)\3rdParty\EndianPortable\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -159,6 +158,7 @@ xcopy $(PcapPlusPlusHome)\Packet++\header\* "$(PcapPlusPlusHome)\Dist\header" /F
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WINx64;NDEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>$(PcapPlusPlusHome)\Packet++\header;$(PcapPlusPlusHome)\Common++\header;$(PcapPlusPlusHome)\3rdParty\EndianPortable\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -175,55 +175,80 @@ xcopy $(PcapPlusPlusHome)\Packet++\header\* "$(PcapPlusPlusHome)\Dist\header" /F
     <ClInclude Include="..\..\Packet++\header\ArpLayer.h" />
     <ClInclude Include="..\..\Packet++\header\DhcpLayer.h" />
     <ClInclude Include="..\..\Packet++\header\DnsLayer.h" />
+    <ClInclude Include="..\..\Packet++\header\DnsLayerEnums.h" />
+    <ClInclude Include="..\..\Packet++\header\DnsResource.h" />
+    <ClInclude Include="..\..\Packet++\header\DnsResourceData.h" />
     <ClInclude Include="..\..\Packet++\header\EthLayer.h" />
     <ClInclude Include="..\..\Packet++\header\GreLayer.h" />
     <ClInclude Include="..\..\Packet++\header\HttpLayer.h" />
     <ClInclude Include="..\..\Packet++\header\IcmpLayer.h" />
     <ClInclude Include="..\..\Packet++\header\IgmpLayer.h" />
+    <ClInclude Include="..\..\Packet++\header\IPReassembly.h" />
     <ClInclude Include="..\..\Packet++\header\IPv4Layer.h" />
+    <ClInclude Include="..\..\Packet++\header\IPv6Extensions.h" />
     <ClInclude Include="..\..\Packet++\header\IPv6Layer.h" />
     <ClInclude Include="..\..\Packet++\header\Layer.h" />
     <ClInclude Include="..\..\Packet++\header\MplsLayer.h" />
     <ClInclude Include="..\..\Packet++\header\NullLoopbackLayer.h" />
     <ClInclude Include="..\..\Packet++\header\Packet.h" />
+    <ClInclude Include="..\..\Packet++\header\PacketTrailerLayer.h" />
     <ClInclude Include="..\..\Packet++\header\PacketUtils.h" />
     <ClInclude Include="..\..\Packet++\header\PayloadLayer.h" />
     <ClInclude Include="..\..\Packet++\header\PPPoELayer.h" />
     <ClInclude Include="..\..\Packet++\header\ProtocolType.h" />
+    <ClInclude Include="..\..\Packet++\header\RadiusLayer.h" />
     <ClInclude Include="..\..\Packet++\header\RawPacket.h" />
     <ClInclude Include="..\..\Packet++\header\SllLayer.h" />
+    <ClInclude Include="..\..\Packet++\header\SipLayer.h" />
+    <ClInclude Include="..\..\Packet++\header\SdpLayer.h" />
     <ClInclude Include="..\..\Packet++\header\SSLCommon.h" />
     <ClInclude Include="..\..\Packet++\header\SSLHandshake.h" />
     <ClInclude Include="..\..\Packet++\header\SSLLayer.h" />
+    <ClInclude Include="..\..\Packet++\header\TextBasedProtocol.h" />
     <ClInclude Include="..\..\Packet++\header\TcpLayer.h" />
+    <ClInclude Include="..\..\Packet++\header\TcpReassembly.h" />
+    <ClInclude Include="..\..\Packet++\header\TLVData.h" />
     <ClInclude Include="..\..\Packet++\header\UdpLayer.h" />
     <ClInclude Include="..\..\Packet++\header\VlanLayer.h" />
+    <ClInclude Include="..\..\Packet++\header\VxlanLayer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Packet++\src\ArpLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\DhcpLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\DnsLayer.cpp" />
+    <ClCompile Include="..\..\Packet++\src\DnsResource.cpp" />
+    <ClCompile Include="..\..\Packet++\src\DnsResourceData.cpp" />
     <ClCompile Include="..\..\Packet++\src\EthLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\GreLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\HttpLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\IcmpLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\IgmpLayer.cpp" />
+    <ClCompile Include="..\..\Packet++\src\IPReassembly.cpp" />
     <ClCompile Include="..\..\Packet++\src\IPv4Layer.cpp" />
+    <ClCompile Include="..\..\Packet++\src\IPv6Extensions.cpp" />
     <ClCompile Include="..\..\Packet++\src\IPv6Layer.cpp" />
     <ClCompile Include="..\..\Packet++\src\Layer.cpp" />
     <ClCompile Include="..\..\Packet++\src\MplsLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\NullLoopbackLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\Packet.cpp" />
+    <ClCompile Include="..\..\Packet++\src\PacketTrailerLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\PacketUtils.cpp" />
     <ClCompile Include="..\..\Packet++\src\PayloadLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\PPPoELayer.cpp" />
+    <ClCompile Include="..\..\Packet++\src\RadiusLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\RawPacket.cpp" />
+    <ClCompile Include="..\..\Packet++\src\SipLayer.cpp" />
+    <ClCompile Include="..\..\Packet++\src\SdpLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\SllLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\SSLHandshake.cpp" />
     <ClCompile Include="..\..\Packet++\src\SSLLayer.cpp" />
+    <ClCompile Include="..\..\Packet++\src\TextBasedProtocol.cpp" />
     <ClCompile Include="..\..\Packet++\src\TcpLayer.cpp" />
+    <ClCompile Include="..\..\Packet++\src\TcpReassembly.cpp" />
+    <ClCompile Include="..\..\Packet++\src\TLVData.cpp" />
     <ClCompile Include="..\..\Packet++\src\UdpLayer.cpp" />
     <ClCompile Include="..\..\Packet++\src\VlanLayer.cpp" />
+    <ClCompile Include="..\..\Packet++\src\VxlanLayer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="Common++.vcxproj">

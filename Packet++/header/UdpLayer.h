@@ -1,7 +1,7 @@
 #ifndef PACKETPP_UDP_LAYER
 #define PACKETPP_UDP_LAYER
 
-#include <Layer.h>
+#include "Layer.h"
 
 /// @file
 
@@ -57,7 +57,7 @@ namespace pcpp
 		 * Get a pointer to the UDP header. Notice this points directly to the data, so every change will change the actual packet data
 		 * @return A pointer to the @ref udphdr
 		 */
-		inline udphdr* getUdpHeader() { return (udphdr*)m_Data; };
+		inline udphdr* getUdpHeader() { return (udphdr*)m_Data; }
 
 		/**
 		 * Calculate the checksum from header and data and possibly write the result to @ref udphdr#headerChecksum
@@ -69,7 +69,8 @@ namespace pcpp
 		// implement abstract methods
 
 		/**
-		 * Currently identifies the following next layers: DnsLayer. Otherwise sets PayloadLayer
+		 * Currently identifies the following next layers: DnsLayer, DhcpLayer, VxlanLayer, SipRequestLayer, SipResponseLayer,
+		 * RadiusLayer. Otherwise sets PayloadLayer
 		 */
 		void parseNextLayer();
 
@@ -84,6 +85,8 @@ namespace pcpp
 		void computeCalculateFields();
 
 		std::string toString();
+
+		OsiModelLayer getOsiModelLayer() { return OsiModelTransportLayer; }
 	};
 
 } // namespace pcpp

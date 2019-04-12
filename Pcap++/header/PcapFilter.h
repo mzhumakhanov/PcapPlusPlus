@@ -5,7 +5,7 @@
 #include <vector>
 #include "ProtocolType.h"
 #include <stdint.h>
-#include <ArpLayer.h>
+#include "ArpLayer.h"
 
 /**
  * @file
@@ -201,12 +201,12 @@ namespace pcpp
 
 
 	/**
-	 * @class IpV4IDFilter
+	 * @class IPv4IDFilter
 	 * A class for filtering IPv4 traffic by IP ID field of the IPv4 protocol, For example:
 	 * "filter only IPv4 traffic which IP ID is greater than 1234"<BR>
 	 * For deeper understanding of the filter concept please refer to PcapFilter.h
 	 */
-	class IpV4IDFilter : public IFilterWithOperator
+	class IPv4IDFilter : public IFilterWithOperator
 	{
 	private:
 		uint16_t m_IpID;
@@ -216,7 +216,7 @@ namespace pcpp
 		 * @param[in] ipID The IP ID to filter
 		 * @param[in] op The operator to use (e.g "equal", "greater than", etc.)
 		 */
-		IpV4IDFilter(uint16_t ipID, FilterOperator op) : IFilterWithOperator(op), m_IpID(ipID) {}
+		IPv4IDFilter(uint16_t ipID, FilterOperator op) : IFilterWithOperator(op), m_IpID(ipID) {}
 
 		void parseToString(std::string& result);
 
@@ -230,12 +230,12 @@ namespace pcpp
 
 
 	/**
-	 * @class IpV4TotalLengthFilter
+	 * @class IPv4TotalLengthFilter
 	 * A class for filtering IPv4 traffic by "total length" field of the IPv4 protocol, For example:
 	 * "filter only IPv4 traffic which "total length" value is less than 60B"<BR>
 	 * For deeper understanding of the filter concept please refer to PcapFilter.h
 	 */
-	class IpV4TotalLengthFilter : public IFilterWithOperator
+	class IPv4TotalLengthFilter : public IFilterWithOperator
 	{
 	private:
 		uint16_t m_TotalLength;
@@ -245,7 +245,7 @@ namespace pcpp
 		 * @param[in] totalLength The total length value to filter
 		 * @param[in] op The operator to use (e.g "equal", "greater than", etc.)
 		 */
-		IpV4TotalLengthFilter(uint16_t totalLength, FilterOperator op) : IFilterWithOperator(op), m_TotalLength(totalLength) {}
+		IPv4TotalLengthFilter(uint16_t totalLength, FilterOperator op) : IFilterWithOperator(op), m_TotalLength(totalLength) {}
 
 		void parseToString(std::string& result);
 
@@ -393,11 +393,29 @@ namespace pcpp
 	private:
 		std::vector<GeneralFilter*> m_FilterList;
 	public:
+
+		/**
+		 * An empty constructor for this class. Use addFilter() to add filters to the and condition
+		 */
+		AndFilter() {}
+
 		/**
 		 * A constructor that gets a list of pointers to filters and creates one filter from all filters with logical "and" between them
 		 * @param[in] filters The list of pointers to filters
 		 */
 		AndFilter(std::vector<GeneralFilter*>& filters);
+
+		/**
+		 * Add filter to the and condition
+		 * @param[in] filter The filter to add
+		 */
+		void addFilter(GeneralFilter* filter) { m_FilterList.push_back(filter); }
+
+		/**
+		 * Remove the current filters and set new ones
+		 * @param[in] filters The new filters to set. The previous ones will be removed
+		 */
+		void setFilters(std::vector<GeneralFilter*>& filters);
 
 		void parseToString(std::string& result);
 	};
@@ -417,11 +435,23 @@ namespace pcpp
 	private:
 		std::vector<GeneralFilter*> m_FilterList;
 	public:
+
+		/**
+		 * An empty constructor for this class. Use addFilter() to add filters to the or condition
+		 */
+		OrFilter() {}
+
 		/**
 		 * A constructor that gets a list of pointers to filters and creates one filter from all filters with logical "or" between them
 		 * @param[in] filters The list of pointers to filters
 		 */
 		OrFilter(std::vector<GeneralFilter*>& filters);
+
+		/**
+		 * Add filter to the or condition
+		 * @param[in] filter The filter to add
+		 */
+		void addFilter(GeneralFilter* filter) { m_FilterList.push_back(filter); }
 
 		void parseToString(std::string& result);
 	};
@@ -458,7 +488,8 @@ namespace pcpp
 	/**
 	 * @class ProtoFilter
 	 * A class for filtering traffic by protocol. Notice not all protocols are supported, only the following are supported:
-	 * ::TCP, ::UDP, ::ICMP, ::VLAN, ::IPv4, ::IPv6, ::ARP, ::Ethernet. <BR>
+	 * ::TCP, ::UDP, ::ICMP, ::VLAN, ::IPv4, ::IPv6, ::ARP, ::Ethernet, ::GRE (distinguish between ::GREv0 and ::GREv1 is not supported), 
+	 * ::IGMP (distinguish between ::IGMPv1, ::IGMPv2 and ::IGMPv3 is not supported). <BR>
 	 * For deeper understanding of the filter concept please refer to PcapFilter.h
 	 */
 	class ProtoFilter : public GeneralFilter

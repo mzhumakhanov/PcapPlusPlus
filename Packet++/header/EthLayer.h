@@ -78,12 +78,21 @@ namespace pcpp
 		EthLayer(uint8_t* data, size_t dataLen, Packet* packet) : Layer(data, dataLen, NULL, packet) { m_Protocol = Ethernet; }
 
 		/**
+		 * A constructor that creates the layer from an existing packet raw data
+		 * @param[in] data A pointer to the raw data (will be casted to ether_header)
+		 * @param[in] dataLen Size of the data in bytes
+		 * @param[in] prevLayer A pointer to the previous layer
+		 * @param[in] packet A pointer to the Packet instance where layer will be stored in
+		 */
+		EthLayer(uint8_t* data, size_t dataLen, Layer* prevLayer, Packet* packet) : Layer(data, dataLen, prevLayer, packet) { m_Protocol = Ethernet; }
+
+		/**
 		 * A constructor that creates a new Ethernet header and allocates the data
 		 * @param[in] sourceMac The source MAC address
 		 * @param[in] destMac The destination MAC address
-		 * @param[in] etherType The EtherType to be used
+		 * @param[in] etherType The EtherType to be used. It's an optional parameter, a value of 0 will be set if not provided
 		 */
-		EthLayer(MacAddress& sourceMac, MacAddress& destMac, uint16_t etherType);
+		EthLayer(const MacAddress& sourceMac, const MacAddress& destMac, uint16_t etherType = 0);
 
 		~EthLayer() {}
 
@@ -137,6 +146,8 @@ namespace pcpp
 		void computeCalculateFields();
 
 		std::string toString();
+
+		OsiModelLayer getOsiModelLayer() { return OsiModelDataLinkLayer; }
 	};
 
 } // namespace pcpp

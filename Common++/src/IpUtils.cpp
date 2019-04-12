@@ -1,8 +1,9 @@
 #define LOG_MODULE CommonLogModuleIpUtils
 
-#include <IpUtils.h>
-#include <Logger.h>
+#include "IpUtils.h"
+#include "Logger.h"
 #include <string.h>
+#include <stdio.h>
 #ifndef NS_INADDRSZ
 #define NS_INADDRSZ	4
 #endif
@@ -18,6 +19,8 @@ namespace pcpp
 
 in_addr* sockaddr2in_addr(struct sockaddr *sa)
 {
+    if (sa == NULL)
+        return NULL;
     if (sa->sa_family == AF_INET)
         return &(((struct sockaddr_in*)sa)->sin_addr);
     LOG_DEBUG("sockaddr family is not AF_INET. Returning NULL");
@@ -146,7 +149,6 @@ inet_ntop4(const uint8_t* src, char* dst, size_t size)
 	static const char fmt[] = "%u.%u.%u.%u";
 	char tmp[sizeof "255.255.255.255"];
 	int nprinted;
-
 	nprinted = snprintf(tmp, sizeof(tmp), fmt, src[0], src[1], src[2], src[3]);
         /* Note: nprinted *excludes* the trailing '\0' character */
 	if ((size_t)nprinted >= size) {
@@ -186,7 +188,9 @@ inet_ntop6(const uint8_t* src, char* dst, size_t size)
 	for (i = 0; i < NS_IN6ADDRSZ; i++)
 		words[i / 2] |= (src[i] << ((1 - (i % 2)) << 3));
 	best.base = -1;
+	best.len = 0;
 	cur.base = -1;
+	cur.len = 0;
 	for (i = 0; i < (NS_IN6ADDRSZ / NS_INT16SZ); i++) {
 		if (words[i] == 0) {
 			if (cur.base == -1)

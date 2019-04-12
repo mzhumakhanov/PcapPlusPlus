@@ -1,9 +1,9 @@
 #define LOG_MODULE PcapLogModuleLiveDevice
 
-#include <IpUtils.h>
-#include <PcapLiveDeviceList.h>
-#include <Logger.h>
-#include <SystemUtils.h>
+#include "IpUtils.h"
+#include "PcapLiveDeviceList.h"
+#include "Logger.h"
+#include "SystemUtils.h"
 #include <string.h>
 #include <sstream>
 #include <algorithm>
@@ -27,6 +27,8 @@ PcapLiveDeviceList::PcapLiveDeviceList()
 	{
 		LOG_ERROR("Error searching for devices: %s", errbuf);
 	}
+
+	LOG_DEBUG("Pcap lib version info: %s", IPcapDevice::getPcapLibVersionInfo().c_str());
 
 	pcap_if_t* currInterface = interfaceList;
 	while (currInterface != NULL)
@@ -280,8 +282,8 @@ std::vector<IPv4Address>& PcapLiveDeviceList::getDnsServers()
 
 PcapLiveDevice* PcapLiveDeviceList::getPcapLiveDeviceByIp(const char* ipAddrAsString)
 {
-	std::auto_ptr<IPAddress> apAddr = IPAddress::fromString(ipAddrAsString);
-	if (!apAddr->isValid())
+	IPAddress::Ptr_t apAddr = IPAddress::fromString(ipAddrAsString);
+	if (apAddr.get() == NULL || !apAddr->isValid())
 	{
 		LOG_ERROR("IP address illegal");
 		return NULL;

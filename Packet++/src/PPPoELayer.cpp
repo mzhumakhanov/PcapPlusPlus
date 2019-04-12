@@ -1,13 +1,13 @@
 #define LOG_MODULE PacketLogModulePPPoELayer
 
-#include <PPPoELayer.h>
-#include <IPv4Layer.h>
-#include <IPv6Layer.h>
-#include <PayloadLayer.h>
-#include <Logger.h>
+#include "PPPoELayer.h"
+#include "IPv4Layer.h"
+#include "IPv6Layer.h"
+#include "PayloadLayer.h"
+#include "Logger.h"
 #include <map>
 #include <sstream>
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 #include <winsock2.h>
 #elif LINUX
 #include <in.h>
@@ -270,7 +270,7 @@ PPPoEDiscoveryLayer::PPPoETag* PPPoEDiscoveryLayer::getTag(PPPoEDiscoveryLayer::
 		return NULL;
 
 	uint8_t* curTagPtr = m_Data + sizeof(pppoe_header);
-	while ((curTagPtr - m_Data) < m_DataLen)
+	while ((curTagPtr - m_Data) < (int)m_DataLen)
 	{
 		PPPoEDiscoveryLayer::PPPoETag* curTag = castPtrToPPPoETag(curTagPtr);
 		if (curTag->tagType == htons(tagType))
@@ -325,7 +325,7 @@ PPPoEDiscoveryLayer::PPPoETag* PPPoEDiscoveryLayer::addTagAt(PPPoETagTypes tagTy
 	size_t tagTotalLength = 2*sizeof(uint16_t) + tagLength;
 	if (!extendLayer(offset, tagTotalLength))
 	{
-		LOG_ERROR("Could not extend PPPoEDiscoveryLayer in [%d] bytes", tagTotalLength);
+		LOG_ERROR("Could not extend PPPoEDiscoveryLayer in [%d] bytes", (int)tagTotalLength);
 		return NULL;
 	}
 

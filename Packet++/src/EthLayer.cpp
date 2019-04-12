@@ -1,15 +1,15 @@
 #define LOG_MODULE PacketLogModuleEthLayer
 
-#include <EthLayer.h>
-#include <IPv4Layer.h>
-#include <IPv6Layer.h>
-#include <PayloadLayer.h>
-#include <ArpLayer.h>
-#include <VlanLayer.h>
-#include <PPPoELayer.h>
-#include <MplsLayer.h>
+#include "EthLayer.h"
+#include "IPv4Layer.h"
+#include "IPv6Layer.h"
+#include "PayloadLayer.h"
+#include "ArpLayer.h"
+#include "VlanLayer.h"
+#include "PPPoELayer.h"
+#include "MplsLayer.h"
 #include <string.h>
-#if defined(WIN32) || defined(WINx64)
+#if defined(WIN32) || defined(WINx64) || defined(PCAPPP_MINGW_ENV)
 #include <winsock2.h>
 #elif LINUX
 #include <in.h>
@@ -20,7 +20,7 @@
 namespace pcpp
 {
 
-EthLayer::EthLayer(MacAddress& sourceMac, MacAddress& destMac, uint16_t etherType) : Layer()
+EthLayer::EthLayer(const MacAddress& sourceMac, const MacAddress& destMac, uint16_t etherType) : Layer()
 {
 	m_DataLen = sizeof(ether_header);
 	m_Data = new uint8_t[m_DataLen];

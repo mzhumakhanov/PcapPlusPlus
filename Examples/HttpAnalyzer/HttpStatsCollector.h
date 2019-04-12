@@ -17,6 +17,12 @@ struct Rate
 {
 	double currentRate; // periodic rate
 	double totalRate;	 // overlal rate
+
+	void clear()
+	{
+		currentRate = 0;
+		totalRate = 0;
+	}
 };
 
 /**
@@ -40,7 +46,19 @@ struct HttpGeneralStats
 
 	void clear()
 	{
-		memset(this, 0, sizeof(HttpGeneralStats));
+		numOfHttpFlows = 0;
+		httpFlowRate.clear();
+		numOfHttpPipeliningFlows = 0;
+		numOfHttpTransactions = 0;
+		httpTransactionsRate.clear();
+		averageNumOfHttpTransactionsPerFlow = 0;
+		numOfHttpPackets = 0;
+		httpPacketRate.clear();
+		averageNumOfPacketsPerFlow = 0;
+		amountOfHttpTraffic = 0;
+		averageAmountOfDataPerFlow = 0;
+		httpTrafficRate.clear();
+		sampleTime = 0;
 	}
 };
 
@@ -59,7 +77,10 @@ struct HttpMessageStats
 
 	virtual void clear()
 	{
-		memset(this, 0, sizeof(HttpMessageStats));
+		numOfMessages = 0;
+		messageRate.clear();
+		totalMessageHeaderSize = 0;
+		averageMessageHeaderSize = 0;
 	}
 };
 
@@ -250,7 +271,7 @@ private:
 		void clear()
 		{
 			numOfOpenTransactions = 0;
-			lastSeenMessage = pcpp::Unknown;
+			lastSeenMessage = pcpp::UnknownProtocol;
 			httpPipeliningFlow = false;
 		}
 	};
@@ -373,7 +394,7 @@ private:
 			m_RequestStats.averageMessageHeaderSize = (double)m_RequestStats.totalMessageHeaderSize / (double)m_RequestStats.numOfMessages;
 
 		// extract hostname and add to hostname count map
-		pcpp::HttpField* hostField = req->getFieldByName(PCPP_HTTP_HOST_FIELD);
+		pcpp::HeaderField* hostField = req->getFieldByName(PCPP_HTTP_HOST_FIELD);
 		if (hostField != NULL)
 			m_RequestStats.hostnameCount[hostField->getFieldValue()]++;
 
@@ -392,7 +413,7 @@ private:
 			m_ResponseStats.averageMessageHeaderSize = (double)m_ResponseStats.totalMessageHeaderSize / (double)m_ResponseStats.numOfMessages;
 
 		// extract content-length (if exists)
-		pcpp::HttpField* contentLengthField = res->getFieldByName(PCPP_HTTP_CONTENT_LENGTH_FIELD);
+		pcpp::HeaderField* contentLengthField = res->getFieldByName(PCPP_HTTP_CONTENT_LENGTH_FIELD);
 		if (contentLengthField != NULL)
 		{
 			m_ResponseStats.numOfMessagesWithContentLength++;
@@ -402,7 +423,7 @@ private:
 		}
 
 		// extract content-type and add to content-type map
-		pcpp::HttpField* contentTypeField = res->getFieldByName(PCPP_HTTP_CONTENT_TYPE_FIELD);
+		pcpp::HeaderField* contentTypeField = res->getFieldByName(PCPP_HTTP_CONTENT_TYPE_FIELD);
 		if (contentTypeField != NULL)
 		{
 			std::string contentType = contentTypeField->getFieldValue();
